@@ -1,15 +1,15 @@
-# List of usernames that should never be disabled or deleted from Keycloak.
+# List of email addresses that should never be disabled or deleted from Keycloak.
 # These users are typically administrative accounts or system users.
+# Note: The username "admin" is also hardcoded as protected regardless of email.
 PROTECTED_USERS = [
-    "admin",
-    "service-account-emmet-cli-client",  # Example: The service account for this CLI tool itself
-    # Add any other protected usernames here
+    "suomenpalikkayhteisory@outlook.com",
+    "suomenpalikkayhteisory+dummy@outlook.com",
 ]
 
 # List of required user actions for newly created Keycloak users.
 REQUIRED_USER_ACTIONS = [
-    "UPDATE_PASSWORD",
-    "VERIFY_EMAIL",
+    # "UPDATE_PASSWORD",
+    # "VERIFY_EMAIL",
     "WEBAUTHN_REGISTER_PASSWORDLESS",
     # Add any other required actions here
 ]

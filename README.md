@@ -1,95 +1,73 @@
-# Emmet CLI
+# Emmet
 
-A CLI tool for synchronizing user data from an Excel file to Keycloak.
+CLI tool for synchronizing user data from Excel to Keycloak using automatic column detection.
 
 ## Installation
 
-Navigate to the project directory and install the dependencies:
-
 ```bash
-pip install -e .
+uv sync
 ```
 
 ## Usage
 
-### Excel File Format
-
-Your Excel file should have a header row with the following columns (case-sensitive):
-
-*   `username` (required)
-*   `email` (optional)
-*   `firstName` (optional)
-*   `lastName` (optional)
-
-### Keycloak Environment Variables
-
-The `sync` command requires Keycloak connection details to be provided via environment variables:
-
-*   `KEYCLOAK_SERVER`: The base URL of your Keycloak server (e.g., `http://localhost:8080/auth/`)
-*   `KEYCLOAK_REALM`: The name of the Keycloak realm you are managing (e.g., `myrealm`)
-*   `KEYCLOAK_CLIENT_ID`: The client ID of a Keycloak client with administrative access to the realm.
-*   `KEYCLOAK_CLIENT_SECRET`: The client secret for the above client ID.
-
-Set these in your shell before running the `sync` command:
+Run commands using `uv run`:
 
 ```bash
-export KEYCLOAK_SERVER="your_keycloak_server_url"
-export KEYCLOAK_REALM="your_keycloak_realm"
-export KEYCLOAK_CLIENT_ID="your_keycloak_client_id"
-export KEYCLOAK_CLIENT_SECRET="your_keycloak_client_secret"
+uv run emmet -v dump-excel example.xlsx
+uv run emmet sync example.xlsx --dry-run
+```
+
+Or with devenv:
+
+```bash
+devenv shell -- emmet -v dump-excel example.xlsx
 ```
 
 ### Commands
 
-#### `emmet dump-excel <excel_file>`
+**`emmet dump-excel <excel_file>`**
 
-Parses the specified Excel file and prints the extracted user data to the console. Use this to visually confirm that your Excel file is being parsed correctly.
+Parse and display user data from Excel file. Automatically detects email and name columns.
+
+**`emmet sync <excel_file> [--dry-run]`**
+
+Synchronize users to Keycloak. Creates new users with UUID4 usernames, updates existing users by email, and disables users not in Excel.
+
+The tool automatically:
+- Detects email column by scanning for valid email addresses
+- Detects name column by finding cells with two words (first_name last_name)
+- Skips rows containing "eronnut" (case-insensitive)
+
+### Keycloak Configuration
+
+Set environment variables:
 
 ```bash
-emmet dump-excel "path/to/your/excel_file.xlsx"
+export KEYCLOAK_SERVER="http://localhost:8080/auth/"
+export KEYCLOAK_REALM="myrealm"
+export KEYCLOAK_CLIENT_ID="emmet-cli-client"
+export KEYCLOAK_CLIENT_SECRET="your-secret"
 ```
 
-#### `emmet sync <excel_file>`
+### Keycloak Client Setup
 
-Synchronizes users from the specified Excel file to Keycloak. This command will create new users, update existing users, and disable users in Keycloak that are no longer present in the Excel file.
+1. In Keycloak Admin Console, navigate to **Clients** → **Create client**
+2. Set `Client ID` to `emmet-cli-client`
+3. Enable `Client authentication`
+4. Go to **Credentials** tab and copy the `Client secret`
+5. Go to **Service account roles** tab → **Assign role**
+6. Select `admin` role from realm roles
 
-*   **Dry Run:** To see what actions would be taken without actually modifying Keycloak, use the `--dry-run` option:
+### Protected Users
 
-    ```bash
-    emmet sync "path/to/your/excel_file.xlsx" --dry-run
-    ```
+Edit `src/emmet/constants.py` to configure protected email addresses that won't be disabled:
 
-*   **Live Synchronization:** To perform the actual synchronization:
+```python
+PROTECTED_USERS = [
+    "admin",
+    "suomenpalikkayhteisory@outlook.com",
+    "suomenpalikkayhteisory+dummy@outlook.com",
+]
+```
 
-    ```bash
-    emmet sync "path/to/your/excel_file.xlsx"
-    ```
-
-## Recommended Approach for Keycloak Client ID and Secret
-
-To ensure proper and secure synchronization with Keycloak, it is recommended to create a dedicated client with appropriate permissions. Follow these steps in your Keycloak admin console:
-
-1.  **Log in to Keycloak Admin Console:** Access your Keycloak instance and log in as an administrator.
-
-2.  **Select Your Realm:** In the top-left corner, select the realm where you want to synchronize users.
-
-3.  **Create a New Client:**
-    *   Navigate to `Clients` in the left-hand menu.
-    *   Click the `Create client` button.
-    *   Set `Client ID` to something descriptive, e.g., `emmet-cli-client`.
-    *   Set `Client authentication` to `On`.
-    *   Set `Authorization` to `Off`.
-    *   Click `Save`.
-
-4.  **Configure Client Credentials:**
-    *   After saving, go to the `Credentials` tab for your newly created client.
-    *   Note down the `Client secret`. This will be your `KEYCLOAK_CLIENT_SECRET` environment variable.
-
-5.  **Assign Realm Roles to the Client:**
-    *   Go to the `Service account roles` tab for your client.
-    *   Click on `Assign role`.
-    *   Filter by `Filter by realm roles` and search for `admin`.
-    *   Select the `admin` role and click `Assign`.
-    *   This grants the client the necessary permissions to manage users in the realm.
-
-By following these steps, you create a client specifically for the `emmet` CLI with the minimum required permissions, enhancing the security of your Keycloak integration.
+**Note:** The username `"admin"` is always protected regardless of email address.

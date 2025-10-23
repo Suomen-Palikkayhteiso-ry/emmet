@@ -1,6 +1,5 @@
 from emmet.constants import PROTECTED_USERS
 from emmet.constants import REQUIRED_USER_ACTIONS
-from emmet.types import ExcelColumnMapping
 from emmet.types import User
 from emmet.utils import parse_excel_users
 from keycloak import KeycloakAdmin
@@ -26,30 +25,6 @@ def main(verbose: bool) -> None:
     else:
         logging.basicConfig(level=logging.ERROR, format="%(levelname)s: %(message)s")
     pass
-
-
-def common_excel_options(f):
-    f = click.option(
-        "--username-col",
-        default="username",
-        help="Excel column name for username (default: 'username')",
-    )(f)
-    f = click.option(
-        "--email-col",
-        default="email",
-        help="Excel column name for email (default: 'email')",
-    )(f)
-    f = click.option(
-        "--first-name-col",
-        default="firstName",
-        help="Excel column name for first name (default: 'firstName')",
-    )(f)
-    f = click.option(
-        "--last-name-col",
-        default="lastName",
-        help="Excel column name for last name (default: 'lastName')",
-    )(f)
-    return f
 
 
 @main.command()
@@ -81,7 +56,6 @@ def common_excel_options(f):
 @click.option(
     "--dry-run", is_flag=True, help="Only print actions, do not execute them."
 )
-@common_excel_options
 def sync(
     excel_file: str,
     keycloak_server: str,
@@ -89,23 +63,12 @@ def sync(
     keycloak_client_id: str,
     keycloak_client_secret: str,
     dry_run: bool,
-    username_col: str,
-    email_col: str,
-    first_name_col: str,
-    last_name_col: str,
 ) -> None:
-    """Synchronize users from an Excel file to Keycloak."""
+    """Synchronize users from an Excel file to Keycloak using auto-detection."""
     click.echo(f"Synchronizing users from {excel_file}...")
 
-    column_mapping = ExcelColumnMapping(
-        username=username_col,
-        email=email_col,
-        firstName=first_name_col,
-        lastName=last_name_col,
-    )
-
-    # Read users from Excel file
-    excel_users: list[User] = parse_excel_users(excel_file, column_mapping)
+    # Read users from Excel file using auto-detection
+    excel_users: list[User] = parse_excel_users(excel_file, None)
     if not excel_users:
         logger.error(
             "No users found in the Excel file or an error occurred during parsing."
@@ -119,7 +82,6 @@ def sync(
             client_id=keycloak_client_id,
             client_secret_key=keycloak_client_secret,
             realm_name=keycloak_realm,
-            user_realm_name="master",
         )
         keycloak_admin.connection.get_token()
     except KeycloakError as e:
@@ -129,7 +91,10 @@ def sync(
     # Get all users from Keycloak
     try:
         keycloak_users = keycloak_admin.get_users({})
-        keycloak_usernames = [user["username"] for user in keycloak_users]
+        # Create a mapping of email -> user for existing Keycloak users
+        keycloak_users_by_email = {
+            user.get("email"): user for user in keycloak_users if user.get("email")
+        }
     except KeycloakError as e:
         logger.error(f"Error getting users from Keycloak: {e}")
         return
@@ -141,26 +106,40 @@ def sync(
             logger.warning(f"Skipping user with missing username: {user}")
             continue
 
+        if not user.email:
+            logger.warning(f"Skipping user with missing email: {user}")
+            continue
+
         try:
-            user_id = keycloak_admin.get_user_id(username)
-            if user_id:
-                logger.info(f"Updating user {username}...")
+            # Check if user exists by email
+            existing_user = keycloak_users_by_email.get(user.email)
+
+            if existing_user:
+                # Update existing user
+                existing_user_id = existing_user.get("id")
+                existing_username = existing_user.get("username")
+                logger.info(
+                    f"Updating existing user {existing_username} ({user.email})..."
+                )
                 if not dry_run:
                     keycloak_admin.update_user(
-                        user_id,
+                        existing_user_id,
                         {
                             "email": user.email,
+                            "emailVerified": False,
                             "firstName": user.firstName,
                             "lastName": user.lastName,
                         },
                     )
             else:
-                logger.info(f"Creating user {username}...")
+                # Create new user with UUID4 username
+                logger.info(f"Creating new user {username} ({user.email})...")
                 if not dry_run:
                     keycloak_admin.create_user(
                         {
                             "username": username,
                             "email": user.email,
+                            "emailVerified": False,
                             "firstName": user.firstName,
                             "lastName": user.lastName,
                             "enabled": True,
@@ -168,43 +147,48 @@ def sync(
                         }
                     )
         except KeycloakError as e:
-            logger.error(f"Error syncing user {username}: {e}")
+            logger.error(f"Error syncing user {username} ({user.email}): {e}")
 
     # Disable users in Keycloak that are not in the Excel file
-    excel_usernames = [user.username for user in excel_users]
-    for username in keycloak_usernames:
-        if username not in excel_usernames and username not in PROTECTED_USERS:
-            logger.info(f"Disabling user {username}...")
+    excel_emails = [user.email for user in excel_users if user.email]
+    for kc_user in keycloak_users:
+        kc_username = kc_user.get("username")
+        kc_email = kc_user.get("email")
+
+        # Skip if user is in Excel file
+        if kc_email and kc_email in excel_emails:
+            continue
+
+        # Skip if email is in protected list
+        if kc_email and kc_email in PROTECTED_USERS:
+            logger.info(f"Skipping protected user {kc_username} ({kc_email})")
+            continue
+
+        # Skip if username is "admin" (hardcoded protection)
+        if kc_username == "admin":
+            logger.info(f"Skipping admin user {kc_username}")
+            continue
+
+        # Disable the user
+        if kc_email:
+            logger.info(f"Disabling user {kc_username} ({kc_email})...")
             if not dry_run:
                 try:
-                    user_id = keycloak_admin.get_user_id(username)
+                    user_id = kc_user.get("id")
                     if user_id:
                         keycloak_admin.update_user(user_id, {"enabled": False})
                 except KeycloakError as e:
-                    logger.error(f"Error disabling user {username}: {e}")
+                    logger.error(f"Error disabling user {kc_username}: {e}")
 
 
 @main.command()
 @click.argument("excel_file", type=click.Path(exists=True))
-@common_excel_options
-def dump_excel(
-    excel_file: str,
-    username_col: str,
-    email_col: str,
-    first_name_col: str,
-    last_name_col: str,
-) -> None:
-    """Parse and dump data from an Excel file to visually confirm parsing."""
+def dump_excel(excel_file: str) -> None:
+    """Parse and dump data from an Excel file using auto-detection."""
     click.echo(f"Parsing and dumping users from {excel_file}...")
 
-    column_mapping = ExcelColumnMapping(
-        username=username_col,
-        email=email_col,
-        firstName=first_name_col,
-        lastName=last_name_col,
-    )
-
-    users: list[User] = parse_excel_users(excel_file, column_mapping)
+    # Use auto-detection
+    users: list[User] = parse_excel_users(excel_file, None)
     if users:
         for user in users:
             click.echo(user.model_dump_json(indent=2))

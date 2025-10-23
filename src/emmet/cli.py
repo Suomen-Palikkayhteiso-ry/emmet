@@ -1,6 +1,9 @@
+from emmet.constants import PROTECTED_USERS
+from emmet.constants import REQUIRED_USER_ACTIONS
+from emmet.types import User
+from emmet.utils import parse_excel_users
 from keycloak import KeycloakAdmin
 from keycloak.exceptions import KeycloakError
-from openpyxl import load_workbook
 import click
 import logging
 
@@ -10,7 +13,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
 @click.group()
-def main():
+def main() -> None:
     """A CLI for synchronizing user data from an Excel file to Keycloak."""
     pass
 
@@ -45,27 +48,22 @@ def main():
     "--dry-run", is_flag=True, help="Only print actions, do not execute them."
 )
 def sync(
-    excel_file,
-    keycloak_server,
-    keycloak_realm,
-    keycloak_client_id,
-    keycloak_client_secret,
-    dry_run,
-):
+    excel_file: str,
+    keycloak_server: str,
+    keycloak_realm: str,
+    keycloak_client_id: str,
+    keycloak_client_secret: str,
+    dry_run: bool,
+) -> None:
     """Synchronize users from an Excel file to Keycloak."""
     click.echo(f"Synchronizing users from {excel_file}...")
 
     # Read users from Excel file
-    excel_users = []
-    try:
-        wb = load_workbook(excel_file)
-        ws = wb.active
-        header = [cell.value for cell in ws[1]]
-        for row in ws.iter_rows(min_row=2):
-            user_data = {header[i]: cell.value for i, cell in enumerate(row)}
-            excel_users.append(user_data)
-    except Exception as e:
-        logging.error(f"Error reading Excel file: {e}")
+    excel_users: list[User] = parse_excel_users(excel_file)
+    if not excel_users:
+        logging.error(
+            "No users found in the Excel file or an error occurred during parsing."
+        )
         return
 
     # Connect to Keycloak
@@ -92,9 +90,9 @@ def sync(
 
     # Sync users from Excel to Keycloak
     for user in excel_users:
-        username = user.get("username")
+        username = user.username
         if not username:
-            logging.warning(f"Skipping row with missing username: {user}")
+            logging.warning(f"Skipping user with missing username: {user}")
             continue
 
         try:
@@ -105,9 +103,9 @@ def sync(
                     keycloak_admin.update_user(
                         user_id,
                         {
-                            "email": user.get("email"),
-                            "firstName": user.get("firstName"),
-                            "lastName": user.get("lastName"),
+                            "email": user.email,
+                            "firstName": user.firstName,
+                            "lastName": user.lastName,
                         },
                     )
             else:
@@ -116,26 +114,41 @@ def sync(
                     keycloak_admin.create_user(
                         {
                             "username": username,
-                            "email": user.get("email"),
-                            "firstName": user.get("firstName"),
-                            "lastName": user.get("lastName"),
+                            "email": user.email,
+                            "firstName": user.firstName,
+                            "lastName": user.lastName,
                             "enabled": True,
+                            "requiredActions": REQUIRED_USER_ACTIONS,
                         }
                     )
         except KeycloakError as e:
             logging.error(f"Error syncing user {username}: {e}")
 
     # Disable users in Keycloak that are not in the Excel file
-    excel_usernames = [user.get("username") for user in excel_users]
+    excel_usernames = [user.username for user in excel_users]
     for username in keycloak_usernames:
-        if username not in excel_usernames:
+        if username not in excel_usernames and username not in PROTECTED_USERS:
             logging.info(f"Disabling user {username}...")
             if not dry_run:
                 try:
                     user_id = keycloak_admin.get_user_id(username)
-                    keycloak_admin.update_user(user_id, {"enabled": False})
+                    if user_id:
+                        keycloak_admin.update_user(user_id, {"enabled": False})
                 except KeycloakError as e:
                     logging.error(f"Error disabling user {username}: {e}")
+
+
+@main.command()
+@click.argument("excel_file", type=click.Path(exists=True))
+def dump_excel(excel_file: str) -> None:
+    """Parse and dump data from an Excel file to visually confirm parsing."""
+    click.echo(f"Parsing and dumping users from {excel_file}...")
+    users: list[User] = parse_excel_users(excel_file)
+    if users:
+        for user in users:
+            click.echo(user.model_dump_json(indent=2))
+    else:
+        click.echo("No users found or an error occurred during parsing.")
 
 
 if __name__ == "__main__":

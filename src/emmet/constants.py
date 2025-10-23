@@ -8,8 +8,5 @@ PROTECTED_USERS = [
 
 # List of required user actions for newly created Keycloak users.
 REQUIRED_USER_ACTIONS = [
-    # "UPDATE_PASSWORD",
-    # "VERIFY_EMAIL",
-    "WEBAUTHN_REGISTER_PASSWORDLESS",
-    # Add any other required actions here
+    "webauthn-register-passwordless",
 ]

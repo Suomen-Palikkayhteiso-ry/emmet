@@ -1,0 +1,39 @@
+[project]
+name = "emmet"
+version = "0.0.1"
+readme = "README.md"
+authors = [
+    {name = "Asko Soukka", email = "asko.soukka@iki.fi"},
+]
+requires-python = ">= 3.12"
+dependencies = [
+    "click>=8.3.0",
+    "openpyxl>=3.1.5",
+    "python-keycloak>=5.8.1",
+]
+
+[tool.uv]
+override-dependencies = [
+]
+
+[project.scripts]
+emmet  = "emmet.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.isort]
+force_alphabetical_sort_within_sections = true
+force_single_line = true
+from_first = true
+line_length = 200
+lines_after_imports = 2
+lines_between_types = 0
+no_sections = true
+
+[dependency-groups]
+dev = [
+    "black>=25.1.0",
+    "isort>=5.13.2",
+]

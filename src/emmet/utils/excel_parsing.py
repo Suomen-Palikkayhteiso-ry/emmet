@@ -1,203 +1,22 @@
+"""Excel file parsing utilities."""
+
 from emmet.types import User
+from emmet.utils.column_detection import detect_column_by_name
+from emmet.utils.column_detection import detect_date_columns
+from emmet.utils.column_detection import detect_email_column
+from emmet.utils.column_detection import detect_header_row
+from emmet.utils.column_detection import detect_name_column
+from emmet.utils.name_parsing import parse_name_field
 from openpyxl import load_workbook
-from openpyxl.worksheet.worksheet import Worksheet
 from typing import Any
-from typing import Dict
 from typing import List
 from typing import Optional
-from typing import Tuple
 import datetime
 import logging
-import re
 import uuid
 
 
 logger = logging.getLogger(__name__)
-
-
-def detect_email_column(
-    ws: Worksheet, header: List[str], header_row_num: int = 1
-) -> Optional[int]:
-    """
-    Detect which column contains email addresses by scanning the data.
-
-    Returns the column index (0-based) or None if no email column is found.
-    """
-    email_pattern = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
-
-    # Count email matches per column
-    column_email_counts: Dict[int, int] = {}
-
-    # Start scanning after the header row
-    data_start_row = header_row_num + 1
-    for row in ws.iter_rows(
-        min_row=data_start_row,
-        max_row=min(data_start_row + 19, ws.max_row or data_start_row),
-    ):  # Sample up to 20 data rows
-        for col_idx, cell in enumerate(row):
-            if cell.value and isinstance(cell.value, str):
-                if email_pattern.match(cell.value.strip()):
-                    column_email_counts[col_idx] = (
-                        column_email_counts.get(col_idx, 0) + 1
-                    )
-
-    # Return column with most email matches (at least 1)
-    if column_email_counts:
-        email_col_idx = max(column_email_counts, key=lambda k: column_email_counts[k])
-        logger.info(
-            f"Detected email column: '{header[email_col_idx]}' (index {email_col_idx})"
-        )
-        return email_col_idx
-
-    return None
-
-
-def detect_name_column(
-    ws: Worksheet,
-    header: List[str],
-    email_col_idx: Optional[int],
-    header_row_num: int = 1,
-) -> Optional[int]:
-    """
-    Detect which column contains full names (two or more words: first_name [middle_name(s)] last_name).
-
-    Returns the column index (0-based) or None if no name column is found.
-    """
-    two_or_more_word_pattern = re.compile(r"^\s*\S+\s+\S+.*$")
-
-    # Count two-or-more-word matches per column
-    column_name_counts: Dict[int, int] = {}
-
-    # Start scanning after the header row
-    data_start_row = header_row_num + 1
-    for row in ws.iter_rows(
-        min_row=data_start_row,
-        max_row=min(data_start_row + 19, ws.max_row or data_start_row),
-    ):  # Sample up to 20 data rows
-        for col_idx, cell in enumerate(row):
-            # Skip the email column
-            if col_idx == email_col_idx:
-                continue
-
-            if cell.value and isinstance(cell.value, str):
-                if two_or_more_word_pattern.match(cell.value.strip()):
-                    column_name_counts[col_idx] = column_name_counts.get(col_idx, 0) + 1
-
-    # Return column with most two-or-more-word matches (at least 1)
-    if column_name_counts:
-        name_col_idx = max(column_name_counts, key=lambda k: column_name_counts[k])
-        logger.info(
-            f"Detected name column: '{header[name_col_idx]}' (index {name_col_idx})"
-        )
-        return name_col_idx
-
-    return None
-
-
-def detect_date_columns(
-    ws: Worksheet,
-    header: List[str],
-    skip_col_indices: List[int],
-    header_row_num: int = 1,
-) -> Tuple[Optional[int], Optional[int]]:
-    """
-    Detect which columns contain dates in dd.mm.yyyy format.
-
-    Returns a tuple of (first_date_col_idx, second_date_col_idx).
-    The first date is effectiveDate, the second is expirationDate.
-    """
-    # Pattern for dd.mm.yyyy format (as string or datetime)
-    date_pattern = re.compile(r"^\d{1,2}\.\d{1,2}\.\d{4}$")
-
-    # Track which columns have date-like values
-    column_date_counts: Dict[int, int] = {}
-
-    # Start scanning after the header row
-    data_start_row = header_row_num + 1
-    for row in ws.iter_rows(
-        min_row=data_start_row,
-        max_row=min(data_start_row + 19, ws.max_row or data_start_row),
-    ):  # Sample up to 20 data rows
-        for col_idx, cell in enumerate(row):
-            # Skip already identified columns
-            if col_idx in skip_col_indices:
-                continue
-
-            if cell.value:
-                # Check if it's a string matching date pattern
-                if isinstance(cell.value, str) and date_pattern.match(
-                    cell.value.strip()
-                ):
-                    column_date_counts[col_idx] = column_date_counts.get(col_idx, 0) + 1
-                # Check if it's a datetime object from Excel
-                elif hasattr(cell.value, "strftime"):
-                    column_date_counts[col_idx] = column_date_counts.get(col_idx, 0) + 1
-
-    # Get columns sorted by index that have date values
-    date_columns = sorted(
-        [col_idx for col_idx, count in column_date_counts.items() if count > 0]
-    )
-
-    effective_date_col = date_columns[0] if len(date_columns) >= 1 else None
-    expiration_date_col = date_columns[1] if len(date_columns) >= 2 else None
-
-    if effective_date_col is not None:
-        logger.info(
-            f"Detected effectiveDate column: '{header[effective_date_col]}' (index {effective_date_col})"
-        )
-    if expiration_date_col is not None:
-        logger.info(
-            f"Detected expirationDate column: '{header[expiration_date_col]}' (index {expiration_date_col})"
-        )
-
-    return effective_date_col, expiration_date_col
-
-
-def detect_header_row(ws: Worksheet) -> int:
-    """
-    Detect which row contains the header by looking for "bricklink" (case-insensitive).
-
-    Returns the row number (1-based) of the header row.
-    """
-    # Check first 10 rows to find the header
-    for row_num in range(1, min(11, (ws.max_row or 1) + 1)):
-        row_values = [
-            str(cell.value) if cell.value is not None else "" for cell in ws[row_num]
-        ]
-
-        # Check if any cell in this row contains "bricklink" (case-insensitive)
-        for cell_value in row_values:
-            if cell_value and "bricklink" in cell_value.lower():
-                logger.info(
-                    f"Detected header row at row {row_num} (contains 'bricklink')"
-                )
-                return row_num
-
-    # Default to row 1 if no header detected
-    logger.info("Using row 1 as header row (default)")
-    return 1
-
-
-def detect_column_by_name(header: List[str], search_term: str) -> Optional[int]:
-    """
-    Detect a column by searching for a case-insensitive term in the header.
-
-    Returns the column index (0-based) or None if not found.
-    """
-    # if search_term == "discord":
-    #    import pdb; pdb.set_trace()
-    search_term_lower = search_term.lower()
-    logger.info(f"Searching for column containing '{search_term}'...")
-    for col_idx, header_value in enumerate(header):
-        if header_value:
-            logger.debug(f"  Checking column {col_idx}: '{header_value}'")
-            if search_term_lower in header_value.lower():
-                logger.info(
-                    f"Detected {search_term} column: '{header[col_idx]}' (index {col_idx})"
-                )
-                return col_idx
-    logger.warning(f"No column found containing '{search_term}'")
-    return None
 
 
 def should_skip_row(row: Any) -> bool:
@@ -211,28 +30,6 @@ def should_skip_row(row: Any) -> bool:
             if "eronnut" in cell.value.lower():
                 return True
     return False
-
-
-def parse_name_field(name_str: str) -> Tuple[Optional[str], Optional[str]]:
-    """
-    Parse a name string into first_name and last_name.
-
-    - If the name has two or more parts: first part is first_name, last part is last_name
-    - Middle parts are ignored
-    - If only one part: it becomes first_name, last_name is None
-
-    Returns (first_name, last_name) tuple.
-    """
-    if not name_str:
-        return None, None
-
-    parts = name_str.strip().split()  # Split on whitespace
-    if len(parts) >= 2:
-        return parts[0], parts[-1]  # First and last part
-    elif len(parts) == 1:
-        return parts[0], None
-
-    return None, None
 
 
 def parse_excel_users(

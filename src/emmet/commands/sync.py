@@ -45,6 +45,16 @@ def update_existing_user(
         if existing_attributes.get("hometown")
         else None
     )
+    existing_effective_date = (
+        existing_attributes.get("effectiveDate", [None])[0]
+        if existing_attributes.get("effectiveDate")
+        else None
+    )
+    existing_expiration_date = (
+        existing_attributes.get("expirationDate", [None])[0]
+        if existing_attributes.get("expirationDate")
+        else None
+    )
 
     # Get existing first and last names
     existing_first_name = existing_user.get("firstName")
@@ -62,6 +72,14 @@ def update_existing_user(
         changes.append(f"fullName attribute: {existing_fullname} → {user.fullName}")
     if existing_hometown != user.hometown:
         changes.append(f"hometown attribute: {existing_hometown} → {user.hometown}")
+    if existing_effective_date != user.effectiveDate:
+        changes.append(
+            f"effectiveDate attribute: {existing_effective_date} → {user.effectiveDate}"
+        )
+    if existing_expiration_date != user.expirationDate:
+        changes.append(
+            f"expirationDate attribute: {existing_expiration_date} → {user.expirationDate}"
+        )
     if not existing_first_name and user.firstName:
         changes.append(f"firstName: (empty) → {user.firstName}")
     if not existing_last_name and user.lastName:
@@ -81,6 +99,10 @@ def update_existing_user(
                     attributes["fullName"] = [user.fullName]
                 if user.hometown:
                     attributes["hometown"] = [user.hometown]
+                if user.effectiveDate:
+                    attributes["effectiveDate"] = [user.effectiveDate]
+                if user.expirationDate:
+                    attributes["expirationDate"] = [user.expirationDate]
 
                 # Use existing firstName/lastName if present, otherwise use new from Excel
                 update_payload = {
@@ -136,6 +158,10 @@ def create_new_user(
             attributes["fullName"] = [user.fullName]
         if user.hometown:
             attributes["hometown"] = [user.hometown]
+        if user.effectiveDate:
+            attributes["effectiveDate"] = [user.effectiveDate]
+        if user.expirationDate:
+            attributes["expirationDate"] = [user.expirationDate]
 
         new_user_id = keycloak_admin.create_user(
             {

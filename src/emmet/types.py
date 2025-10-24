@@ -10,3 +10,5 @@ class User(BaseModel):
     lastName: Optional[str] = None
     fullName: Optional[str] = None
     hometown: Optional[str] = None
+    effectiveDate: Optional[str] = None
+    expirationDate: Optional[str] = None

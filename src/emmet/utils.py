@@ -6,6 +6,7 @@ from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Tuple
+import datetime
 import logging
 import re
 import uuid
@@ -82,6 +83,59 @@ def detect_name_column(
     return None
 
 
+def detect_date_columns(
+    ws: Worksheet, header: List[str], skip_col_indices: List[int]
+) -> Tuple[Optional[int], Optional[int]]:
+    """
+    Detect which columns contain dates in dd.mm.yyyy format.
+
+    Returns a tuple of (first_date_col_idx, second_date_col_idx).
+    The first date is effectiveDate, the second is expirationDate.
+    """
+    # Pattern for dd.mm.yyyy format (as string or datetime)
+    date_pattern = re.compile(r"^\d{1,2}\.\d{1,2}\.\d{4}$")
+
+    # Track which columns have date-like values
+    column_date_counts: Dict[int, int] = {}
+
+    for row in ws.iter_rows(
+        min_row=2, max_row=min(20, ws.max_row or 2)
+    ):  # Sample first 20 rows
+        for col_idx, cell in enumerate(row):
+            # Skip already identified columns
+            if col_idx in skip_col_indices:
+                continue
+
+            if cell.value:
+                # Check if it's a string matching date pattern
+                if isinstance(cell.value, str) and date_pattern.match(
+                    cell.value.strip()
+                ):
+                    column_date_counts[col_idx] = column_date_counts.get(col_idx, 0) + 1
+                # Check if it's a datetime object from Excel
+                elif hasattr(cell.value, "strftime"):
+                    column_date_counts[col_idx] = column_date_counts.get(col_idx, 0) + 1
+
+    # Get columns sorted by index that have date values
+    date_columns = sorted(
+        [col_idx for col_idx, count in column_date_counts.items() if count > 0]
+    )
+
+    effective_date_col = date_columns[0] if len(date_columns) >= 1 else None
+    expiration_date_col = date_columns[1] if len(date_columns) >= 2 else None
+
+    if effective_date_col is not None:
+        logger.info(
+            f"Detected effectiveDate column: '{header[effective_date_col]}' (index {effective_date_col})"
+        )
+    if expiration_date_col is not None:
+        logger.info(
+            f"Detected expirationDate column: '{header[expiration_date_col]}' (index {expiration_date_col})"
+        )
+
+    return effective_date_col, expiration_date_col
+
+
 def should_skip_row(row: Any) -> bool:
     """
     Check if a row should be skipped based on the presence of 'eronnut' (case-insensitive).
@@ -150,9 +204,22 @@ def parse_excel_users(
         # Hometown is always the next column after name
         hometown_col_idx = (name_col_idx + 1) if name_col_idx is not None else None
 
+        # Detect date columns (skip email, name, and hometown columns)
+        skip_cols = [email_col_idx]
+        if name_col_idx is not None:
+            skip_cols.append(name_col_idx)
+        if hometown_col_idx is not None:
+            skip_cols.append(hometown_col_idx)
+
+        effective_date_col_idx, expiration_date_col_idx = detect_date_columns(
+            ws, header, skip_cols
+        )
+
         logger.info(
             f"Using heuristic parsing: email column at index {email_col_idx}, "
-            f"name column at index {name_col_idx}, hometown column at index {hometown_col_idx}"
+            f"name column at index {name_col_idx}, hometown column at index {hometown_col_idx}, "
+            f"effectiveDate column at index {effective_date_col_idx}, "
+            f"expirationDate column at index {expiration_date_col_idx}"
         )
 
         for row_idx, row in enumerate(ws.iter_rows(min_row=2), start=2):
@@ -190,6 +257,31 @@ def parse_excel_users(
                 if hometown_cell and hometown_cell.value:
                     hometown = str(hometown_cell.value).strip()
 
+            # Extract dates (as strings)
+            effective_date = None
+            if effective_date_col_idx is not None and effective_date_col_idx < len(row):
+                date_cell = row[effective_date_col_idx]
+                if date_cell and date_cell.value:
+                    # Handle both string and datetime objects
+                    if isinstance(date_cell.value, str):
+                        effective_date = date_cell.value.strip()
+                    elif isinstance(date_cell.value, datetime.datetime):
+                        # Convert datetime to dd.mm.yyyy format
+                        effective_date = date_cell.value.strftime("%d.%m.%Y")
+
+            expiration_date = None
+            if expiration_date_col_idx is not None and expiration_date_col_idx < len(
+                row
+            ):
+                date_cell = row[expiration_date_col_idx]
+                if date_cell and date_cell.value:
+                    # Handle both string and datetime objects
+                    if isinstance(date_cell.value, str):
+                        expiration_date = date_cell.value.strip()
+                    elif isinstance(date_cell.value, datetime.datetime):
+                        # Convert datetime to dd.mm.yyyy format
+                        expiration_date = date_cell.value.strftime("%d.%m.%Y")
+
             # Generate UUID4 username for new users
             username = str(uuid.uuid4())
 
@@ -201,6 +293,8 @@ def parse_excel_users(
                     lastName=last_name,
                     fullName=full_name,
                     hometown=hometown,
+                    effectiveDate=effective_date,
+                    expirationDate=expiration_date,
                 )
                 users.append(user)
                 logger.info(f"Parsed user from row {row_idx}: {email} -> {username}")

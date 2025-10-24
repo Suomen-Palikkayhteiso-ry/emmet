@@ -36,17 +36,36 @@ def update_existing_user(
     # Get existing attributes
     existing_attributes = existing_user.get("attributes", {})
     existing_fullname = (
-        existing_attributes.get("fullname", [None])[0]
-        if existing_attributes.get("fullname")
+        existing_attributes.get("fullName", [None])[0]
+        if existing_attributes.get("fullName")
         else None
     )
+    existing_hometown = (
+        existing_attributes.get("hometown", [None])[0]
+        if existing_attributes.get("hometown")
+        else None
+    )
+
+    # Get existing first and last names
+    existing_first_name = existing_user.get("firstName")
+    existing_last_name = existing_user.get("lastName")
+
+    # Determine final values: use existing if present, otherwise use new from Excel
+    final_first_name = existing_first_name if existing_first_name else user.firstName
+    final_last_name = existing_last_name if existing_last_name else user.lastName
 
     # Check for changes
     changes = []
     if existing_user.get("email") != user.email:
         changes.append(f"email: {existing_user.get('email')} → {user.email}")
     if existing_fullname != user.fullName:
-        changes.append(f"fullname attribute: {existing_fullname} → {user.fullName}")
+        changes.append(f"fullName attribute: {existing_fullname} → {user.fullName}")
+    if existing_hometown != user.hometown:
+        changes.append(f"hometown attribute: {existing_hometown} → {user.hometown}")
+    if not existing_first_name and user.firstName:
+        changes.append(f"firstName: (empty) → {user.firstName}")
+    if not existing_last_name and user.lastName:
+        changes.append(f"lastName: (empty) → {user.lastName}")
 
     if changes:
         message = f"Updating existing user {existing_username} ({user.email})..."
@@ -59,10 +78,15 @@ def update_existing_user(
                 # Prepare attributes update
                 attributes = existing_attributes.copy()
                 if user.fullName:
-                    attributes["fullname"] = [user.fullName]
+                    attributes["fullName"] = [user.fullName]
+                if user.hometown:
+                    attributes["hometown"] = [user.hometown]
 
+                # Use existing firstName/lastName if present, otherwise use new from Excel
                 update_payload = {
                     "email": user.email,
+                    "firstName": final_first_name,
+                    "lastName": final_last_name,
                     "attributes": attributes,
                 }
                 keycloak_admin.update_user(existing_user_id, update_payload)
@@ -109,7 +133,9 @@ def create_new_user(
         # Prepare attributes
         attributes = {"locale": ["fi"]}
         if user.fullName:
-            attributes["fullname"] = [user.fullName]
+            attributes["fullName"] = [user.fullName]
+        if user.hometown:
+            attributes["hometown"] = [user.hometown]
 
         new_user_id = keycloak_admin.create_user(
             {

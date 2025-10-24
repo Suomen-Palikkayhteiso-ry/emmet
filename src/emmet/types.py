@@ -9,3 +9,4 @@ class User(BaseModel):
     firstName: Optional[str] = None
     lastName: Optional[str] = None
     fullName: Optional[str] = None
+    hometown: Optional[str] = None

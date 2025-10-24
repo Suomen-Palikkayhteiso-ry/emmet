@@ -147,8 +147,12 @@ def parse_excel_users(
 
         name_col_idx = detect_name_column(ws, header, email_col_idx)
 
+        # Hometown is always the next column after name
+        hometown_col_idx = (name_col_idx + 1) if name_col_idx is not None else None
+
         logger.info(
-            f"Using heuristic parsing: email column at index {email_col_idx}, name column at index {name_col_idx}"
+            f"Using heuristic parsing: email column at index {email_col_idx}, "
+            f"name column at index {name_col_idx}, hometown column at index {hometown_col_idx}"
         )
 
         for row_idx, row in enumerate(ws.iter_rows(min_row=2), start=2):
@@ -179,6 +183,13 @@ def parse_excel_users(
                     full_name = str(name_cell.value).strip()
                     first_name, last_name = parse_name_field(full_name)
 
+            # Extract hometown (next column after name)
+            hometown = None
+            if hometown_col_idx is not None and hometown_col_idx < len(row):
+                hometown_cell = row[hometown_col_idx]
+                if hometown_cell and hometown_cell.value:
+                    hometown = str(hometown_cell.value).strip()
+
             # Generate UUID4 username for new users
             username = str(uuid.uuid4())
 
@@ -189,6 +200,7 @@ def parse_excel_users(
                     firstName=first_name,
                     lastName=last_name,
                     fullName=full_name,
+                    hometown=hometown,
                 )
                 users.append(user)
                 logger.info(f"Parsed user from row {row_idx}: {email} -> {username}")

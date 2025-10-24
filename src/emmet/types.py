@@ -8,3 +8,4 @@ class User(BaseModel):
     email: Optional[EmailStr] = None
     firstName: Optional[str] = None
     lastName: Optional[str] = None
+    fullName: Optional[str] = None

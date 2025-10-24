@@ -33,16 +33,20 @@ def update_existing_user(
     existing_user_id = existing_user.get("id")
     existing_username = existing_user.get("username")
 
+    # Get existing attributes
+    existing_attributes = existing_user.get("attributes", {})
+    existing_fullname = (
+        existing_attributes.get("fullname", [None])[0]
+        if existing_attributes.get("fullname")
+        else None
+    )
+
     # Check for changes
     changes = []
     if existing_user.get("email") != user.email:
         changes.append(f"email: {existing_user.get('email')} → {user.email}")
-    if existing_user.get("firstName") != user.firstName:
-        changes.append(
-            f"firstName: {existing_user.get('firstName')} → {user.firstName}"
-        )
-    if existing_user.get("lastName") != user.lastName:
-        changes.append(f"lastName: {existing_user.get('lastName')} → {user.lastName}")
+    if existing_fullname != user.fullName:
+        changes.append(f"fullname attribute: {existing_fullname} → {user.fullName}")
 
     if changes:
         message = f"Updating existing user {existing_username} ({user.email})..."
@@ -52,10 +56,14 @@ def update_existing_user(
         else:
             logger.info(message)
             if existing_user_id:
+                # Prepare attributes update
+                attributes = existing_attributes.copy()
+                if user.fullName:
+                    attributes["fullname"] = [user.fullName]
+
                 update_payload = {
                     "email": user.email,
-                    "firstName": user.firstName,
-                    "lastName": user.lastName,
+                    "attributes": attributes,
                 }
                 keycloak_admin.update_user(existing_user_id, update_payload)
     else:
@@ -98,6 +106,11 @@ def create_new_user(
         # This allows Keycloak to show password dialog and send reset emails
         random_password = secrets.token_urlsafe(32)
 
+        # Prepare attributes
+        attributes = {"locale": ["fi"]}
+        if user.fullName:
+            attributes["fullname"] = [user.fullName]
+
         new_user_id = keycloak_admin.create_user(
             {
                 "username": user.username,
@@ -107,7 +120,7 @@ def create_new_user(
                 "lastName": user.lastName,
                 "enabled": True,
                 "requiredActions": list(REQUIRED_USER_ACTIONS),
-                "attributes": {"locale": ["fi"]},
+                "attributes": attributes,
                 "credentials": [
                     {
                         "type": "password",

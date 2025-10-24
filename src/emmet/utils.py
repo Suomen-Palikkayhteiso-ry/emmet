@@ -172,10 +172,12 @@ def parse_excel_users(
             # Extract and parse name
             first_name = None
             last_name = None
+            full_name = None
             if name_col_idx is not None and name_col_idx < len(row):
                 name_cell = row[name_col_idx]
                 if name_cell and name_cell.value:
-                    first_name, last_name = parse_name_field(str(name_cell.value))
+                    full_name = str(name_cell.value).strip()
+                    first_name, last_name = parse_name_field(full_name)
 
             # Generate UUID4 username for new users
             username = str(uuid.uuid4())
@@ -186,6 +188,7 @@ def parse_excel_users(
                     email=email,
                     firstName=first_name,
                     lastName=last_name,
+                    fullName=full_name,
                 )
                 users.append(user)
                 logger.info(f"Parsed user from row {row_idx}: {email} -> {username}")

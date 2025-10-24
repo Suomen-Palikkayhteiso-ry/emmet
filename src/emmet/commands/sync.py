@@ -55,6 +55,16 @@ def update_existing_user(
         if existing_attributes.get("expirationDate")
         else None
     )
+    existing_discord = (
+        existing_attributes.get("discord", [None])[0]
+        if existing_attributes.get("discord")
+        else None
+    )
+    existing_bricklink = (
+        existing_attributes.get("bricklink", [None])[0]
+        if existing_attributes.get("bricklink")
+        else None
+    )
 
     # Get existing first and last names
     existing_first_name = existing_user.get("firstName")
@@ -80,6 +90,10 @@ def update_existing_user(
         changes.append(
             f"expirationDate attribute: {existing_expiration_date} → {user.expirationDate}"
         )
+    if existing_discord != user.discord:
+        changes.append(f"discord attribute: {existing_discord} → {user.discord}")
+    if existing_bricklink != user.bricklink:
+        changes.append(f"bricklink attribute: {existing_bricklink} → {user.bricklink}")
     if not existing_first_name and user.firstName:
         changes.append(f"firstName: (empty) → {user.firstName}")
     if not existing_last_name and user.lastName:
@@ -103,6 +117,10 @@ def update_existing_user(
                     attributes["effectiveDate"] = [user.effectiveDate]
                 if user.expirationDate:
                     attributes["expirationDate"] = [user.expirationDate]
+                if user.discord:
+                    attributes["discord"] = [user.discord]
+                if user.bricklink:
+                    attributes["bricklink"] = [user.bricklink]
 
                 # Use existing firstName/lastName if present, otherwise use new from Excel
                 update_payload = {
@@ -162,6 +180,10 @@ def create_new_user(
             attributes["effectiveDate"] = [user.effectiveDate]
         if user.expirationDate:
             attributes["expirationDate"] = [user.expirationDate]
+        if user.discord:
+            attributes["discord"] = [user.discord]
+        if user.bricklink:
+            attributes["bricklink"] = [user.bricklink]
 
         new_user_id = keycloak_admin.create_user(
             {

@@ -12,3 +12,5 @@ class User(BaseModel):
     hometown: Optional[str] = None
     effectiveDate: Optional[str] = None
     expirationDate: Optional[str] = None
+    discord: Optional[str] = None
+    bricklink: Optional[str] = None

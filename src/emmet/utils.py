@@ -15,7 +15,9 @@ import uuid
 logger = logging.getLogger(__name__)
 
 
-def detect_email_column(ws: Worksheet, header: List[str]) -> Optional[int]:
+def detect_email_column(
+    ws: Worksheet, header: List[str], header_row_num: int = 1
+) -> Optional[int]:
     """
     Detect which column contains email addresses by scanning the data.
 
@@ -26,9 +28,12 @@ def detect_email_column(ws: Worksheet, header: List[str]) -> Optional[int]:
     # Count email matches per column
     column_email_counts: Dict[int, int] = {}
 
+    # Start scanning after the header row
+    data_start_row = header_row_num + 1
     for row in ws.iter_rows(
-        min_row=2, max_row=min(20, ws.max_row or 2)
-    ):  # Sample first 20 rows
+        min_row=data_start_row,
+        max_row=min(data_start_row + 19, ws.max_row or data_start_row),
+    ):  # Sample up to 20 data rows
         for col_idx, cell in enumerate(row):
             if cell.value and isinstance(cell.value, str):
                 if email_pattern.match(cell.value.strip()):
@@ -48,7 +53,10 @@ def detect_email_column(ws: Worksheet, header: List[str]) -> Optional[int]:
 
 
 def detect_name_column(
-    ws: Worksheet, header: List[str], email_col_idx: Optional[int]
+    ws: Worksheet,
+    header: List[str],
+    email_col_idx: Optional[int],
+    header_row_num: int = 1,
 ) -> Optional[int]:
     """
     Detect which column contains full names (two or more words: first_name [middle_name(s)] last_name).
@@ -60,9 +68,12 @@ def detect_name_column(
     # Count two-or-more-word matches per column
     column_name_counts: Dict[int, int] = {}
 
+    # Start scanning after the header row
+    data_start_row = header_row_num + 1
     for row in ws.iter_rows(
-        min_row=2, max_row=min(20, ws.max_row or 2)
-    ):  # Sample first 20 rows
+        min_row=data_start_row,
+        max_row=min(data_start_row + 19, ws.max_row or data_start_row),
+    ):  # Sample up to 20 data rows
         for col_idx, cell in enumerate(row):
             # Skip the email column
             if col_idx == email_col_idx:
@@ -84,7 +95,10 @@ def detect_name_column(
 
 
 def detect_date_columns(
-    ws: Worksheet, header: List[str], skip_col_indices: List[int]
+    ws: Worksheet,
+    header: List[str],
+    skip_col_indices: List[int],
+    header_row_num: int = 1,
 ) -> Tuple[Optional[int], Optional[int]]:
     """
     Detect which columns contain dates in dd.mm.yyyy format.
@@ -98,9 +112,12 @@ def detect_date_columns(
     # Track which columns have date-like values
     column_date_counts: Dict[int, int] = {}
 
+    # Start scanning after the header row
+    data_start_row = header_row_num + 1
     for row in ws.iter_rows(
-        min_row=2, max_row=min(20, ws.max_row or 2)
-    ):  # Sample first 20 rows
+        min_row=data_start_row,
+        max_row=min(data_start_row + 19, ws.max_row or data_start_row),
+    ):  # Sample up to 20 data rows
         for col_idx, cell in enumerate(row):
             # Skip already identified columns
             if col_idx in skip_col_indices:
@@ -134,6 +151,53 @@ def detect_date_columns(
         )
 
     return effective_date_col, expiration_date_col
+
+
+def detect_header_row(ws: Worksheet) -> int:
+    """
+    Detect which row contains the header by looking for "bricklink" (case-insensitive).
+
+    Returns the row number (1-based) of the header row.
+    """
+    # Check first 10 rows to find the header
+    for row_num in range(1, min(11, (ws.max_row or 1) + 1)):
+        row_values = [
+            str(cell.value) if cell.value is not None else "" for cell in ws[row_num]
+        ]
+
+        # Check if any cell in this row contains "bricklink" (case-insensitive)
+        for cell_value in row_values:
+            if cell_value and "bricklink" in cell_value.lower():
+                logger.info(
+                    f"Detected header row at row {row_num} (contains 'bricklink')"
+                )
+                return row_num
+
+    # Default to row 1 if no header detected
+    logger.info("Using row 1 as header row (default)")
+    return 1
+
+
+def detect_column_by_name(header: List[str], search_term: str) -> Optional[int]:
+    """
+    Detect a column by searching for a case-insensitive term in the header.
+
+    Returns the column index (0-based) or None if not found.
+    """
+    # if search_term == "discord":
+    #    import pdb; pdb.set_trace()
+    search_term_lower = search_term.lower()
+    logger.info(f"Searching for column containing '{search_term}'...")
+    for col_idx, header_value in enumerate(header):
+        if header_value:
+            logger.debug(f"  Checking column {col_idx}: '{header_value}'")
+            if search_term_lower in header_value.lower():
+                logger.info(
+                    f"Detected {search_term} column: '{header[col_idx]}' (index {col_idx})"
+                )
+                return col_idx
+    logger.warning(f"No column found containing '{search_term}'")
+    return None
 
 
 def should_skip_row(row: Any) -> bool:
@@ -191,15 +255,20 @@ def parse_excel_users(
             logger.warning(f"Worksheet is empty in {file_path}")
             return []
 
-        header = [str(cell.value) if cell.value is not None else "" for cell in ws[1]]
+        # Detect which row contains the headers
+        header_row_num = detect_header_row(ws)
+        header = [
+            str(cell.value) if cell.value is not None else ""
+            for cell in ws[header_row_num]
+        ]
 
         # Use heuristic approach to detect columns
-        email_col_idx = detect_email_column(ws, header)
+        email_col_idx = detect_email_column(ws, header, header_row_num)
         if email_col_idx is None:
             logger.error("Could not detect email column in Excel file")
             return []
 
-        name_col_idx = detect_name_column(ws, header, email_col_idx)
+        name_col_idx = detect_name_column(ws, header, email_col_idx, header_row_num)
 
         # Hometown is always the next column after name
         hometown_col_idx = (name_col_idx + 1) if name_col_idx is not None else None
@@ -212,17 +281,27 @@ def parse_excel_users(
             skip_cols.append(hometown_col_idx)
 
         effective_date_col_idx, expiration_date_col_idx = detect_date_columns(
-            ws, header, skip_cols
+            ws, header, skip_cols, header_row_num
         )
+
+        # Detect discord and bricklink columns by header name
+        discord_col_idx = detect_column_by_name(header, "discord")
+        bricklink_col_idx = detect_column_by_name(header, "bricklink")
 
         logger.info(
             f"Using heuristic parsing: email column at index {email_col_idx}, "
             f"name column at index {name_col_idx}, hometown column at index {hometown_col_idx}, "
             f"effectiveDate column at index {effective_date_col_idx}, "
-            f"expirationDate column at index {expiration_date_col_idx}"
+            f"expirationDate column at index {expiration_date_col_idx}, "
+            f"discord column at index {discord_col_idx}, "
+            f"bricklink column at index {bricklink_col_idx}"
         )
 
-        for row_idx, row in enumerate(ws.iter_rows(min_row=2), start=2):
+        # Start processing rows after the header row
+        data_start_row = header_row_num + 1
+        for row_idx, row in enumerate(
+            ws.iter_rows(min_row=data_start_row), start=data_start_row
+        ):
             # Skip rows containing 'eronnut'
             if should_skip_row(row):
                 logger.info(f"Skipping row {row_idx}: contains 'eronnut'")
@@ -282,6 +361,20 @@ def parse_excel_users(
                         # Convert datetime to dd.mm.yyyy format
                         expiration_date = date_cell.value.strftime("%d.%m.%Y")
 
+            # Extract discord
+            discord = None
+            if discord_col_idx is not None and discord_col_idx < len(row):
+                discord_cell = row[discord_col_idx]
+                if discord_cell and discord_cell.value:
+                    discord = str(discord_cell.value).strip()
+
+            # Extract bricklink
+            bricklink = None
+            if bricklink_col_idx is not None and bricklink_col_idx < len(row):
+                bricklink_cell = row[bricklink_col_idx]
+                if bricklink_cell and bricklink_cell.value:
+                    bricklink = str(bricklink_cell.value).strip()
+
             # Generate UUID4 username for new users
             username = str(uuid.uuid4())
 
@@ -295,6 +388,8 @@ def parse_excel_users(
                     hometown=hometown,
                     effectiveDate=effective_date,
                     expirationDate=expiration_date,
+                    discord=discord,
+                    bricklink=bricklink,
                 )
                 users.append(user)
                 logger.info(f"Parsed user from row {row_idx}: {email} -> {username}")

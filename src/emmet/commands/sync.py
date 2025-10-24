@@ -6,11 +6,111 @@ from emmet.types import User
 from emmet.utils import parse_excel_users
 from keycloak import KeycloakAdmin
 from keycloak.exceptions import KeycloakError
+from typing import Any
 import click
 import logging
+import secrets
 
 
 logger = logging.getLogger(__name__)
+
+
+def update_existing_user(
+    keycloak_admin: KeycloakAdmin,
+    existing_user: dict[str, Any],
+    user: User,
+    dry_run: bool,
+) -> None:
+    """Update an existing Keycloak user with data from Excel.
+
+    Args:
+        keycloak_admin: The Keycloak admin client
+        existing_user: The existing user dict from Keycloak
+        user: The user data from Excel
+        dry_run: If True, only log actions without executing them
+    """
+    existing_user_id = existing_user.get("id")
+    existing_username = existing_user.get("username")
+
+    logger.info(f"Updating existing user {existing_username} ({user.email})...")
+
+    if not dry_run and existing_user_id:
+        update_payload = {
+            "email": user.email,
+            "firstName": user.firstName,
+            "lastName": user.lastName,
+        }
+        keycloak_admin.update_user(existing_user_id, update_payload)
+
+
+def create_new_user(
+    keycloak_admin: KeycloakAdmin,
+    user: User,
+    dry_run: bool,
+) -> None:
+    """Create a new Keycloak user with data from Excel.
+
+    Sets a safe random password that is not meant to be remembered.
+    This enables Keycloak to show the password dialog and allow sending
+    a password reset email.
+
+    Args:
+        keycloak_admin: The Keycloak admin client
+        user: The user data from Excel
+        dry_run: If True, only log actions without executing them
+    """
+    logger.info(f"Creating new user {user.username} ({user.email})...")
+
+    if not dry_run:
+        # Generate a secure random password (not meant to be remembered)
+        # This allows Keycloak to show password dialog and send reset emails
+        random_password = secrets.token_urlsafe(32)
+
+        keycloak_admin.create_user(
+            {
+                "username": user.username,
+                "email": user.email,
+                "emailVerified": False,
+                "firstName": user.firstName,
+                "lastName": user.lastName,
+                "enabled": True,
+                "requiredActions": list(REQUIRED_USER_ACTIONS),
+                "attributes": {"locale": ["fi"]},
+                "credentials": [
+                    {
+                        "type": "password",
+                        "value": random_password,
+                        "temporary": True,
+                    }
+                ],
+            }
+        )
+
+
+def disable_user(
+    keycloak_admin: KeycloakAdmin,
+    kc_user: dict[str, Any],
+    dry_run: bool,
+) -> None:
+    """Disable a Keycloak user.
+
+    Args:
+        keycloak_admin: The Keycloak admin client
+        kc_user: The Keycloak user dict
+        dry_run: If True, only log actions without executing them
+    """
+    kc_username = kc_user.get("username")
+    kc_email = kc_user.get("email")
+
+    logger.info(f"Disabling user {kc_username} ({kc_email})...")
+
+    if not dry_run:
+        try:
+            user_id = kc_user.get("id")
+            if user_id:
+                keycloak_admin.update_user(user_id, {"enabled": False})
+        except KeycloakError as e:
+            logger.error(f"Error disabling user {kc_username}: {e}")
 
 
 @click.command()
@@ -101,62 +201,9 @@ def sync(
             existing_user = keycloak_users_by_email.get(user.email)
 
             if existing_user:
-                # Update existing user
-                existing_user_id = existing_user.get("id")
-                existing_username = existing_user.get("username")
-                email_verified = existing_user.get("emailVerified", False)
-                logger.info(
-                    f"Updating existing user {existing_username} ({user.email})..."
-                )
-                if not dry_run:
-                    update_payload = {
-                        "email": user.email,
-                        "firstName": user.firstName,
-                        "lastName": user.lastName,
-                    }
-                    keycloak_admin.update_user(existing_user_id, update_payload)
-                    # Send verification email if email is not verified
-                    if not email_verified:
-                        try:
-                            # Update user to set emailVerified=False
-                            keycloak_admin.update_user(
-                                existing_user_id, {"emailVerified": False}
-                            )
-                            # Send verification email which automatically adds VERIFY_EMAIL to required actions
-                            keycloak_admin.send_verify_email(user_id=existing_user_id)
-                            logger.info(
-                                f"Sent verification email to {existing_username} ({user.email})"
-                            )
-                        except KeycloakError as e:
-                            logger.warning(
-                                f"Failed to send verification email to {existing_username}: {e}"
-                            )
+                update_existing_user(keycloak_admin, existing_user, user, dry_run)
             else:
-                # Create new user with UUID4 username
-                logger.info(f"Creating new user {username} ({user.email})...")
-                if not dry_run:
-                    user_id = keycloak_admin.create_user(
-                        {
-                            "username": username,
-                            "email": user.email,
-                            "emailVerified": False,
-                            "firstName": user.firstName,
-                            "lastName": user.lastName,
-                            "enabled": True,
-                            "requiredActions": list(REQUIRED_USER_ACTIONS),
-                            "attributes": {"locale": ["fi"]},
-                        }
-                    )
-                    # Send verification email for new users
-                    try:
-                        keycloak_admin.send_verify_email(user_id=user_id)
-                        logger.info(
-                            f"Sent verification email to {username} ({user.email})"
-                        )
-                    except KeycloakError as e:
-                        logger.warning(
-                            f"Failed to send verification email to {username}: {e}"
-                        )
+                create_new_user(keycloak_admin, user, dry_run)
         except KeycloakError as e:
             logger.error(f"Error syncing user {username} ({user.email}): {e}")
 
@@ -182,11 +229,4 @@ def sync(
 
         # Disable the user
         if kc_email:
-            logger.info(f"Disabling user {kc_username} ({kc_email})...")
-            if not dry_run:
-                try:
-                    user_id = kc_user.get("id")
-                    if user_id:
-                        keycloak_admin.update_user(user_id, {"enabled": False})
-                except KeycloakError as e:
-                    logger.error(f"Error disabling user {kc_username}: {e}")
+            disable_user(keycloak_admin, kc_user, dry_run)

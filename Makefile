@@ -6,6 +6,9 @@ format:
 shell:
 	devenv shell
 
+.PHONY: test
+test: check
+
 check:
 	black --check src
 	isort -c src

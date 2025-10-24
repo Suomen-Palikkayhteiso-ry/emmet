@@ -1,5 +1,6 @@
 """Sync command - synchronize users from Excel to Keycloak."""
 
+from emmet.constants import INITIAL_GROUPS
 from emmet.constants import PROTECTED_USERS
 from emmet.constants import REQUIRED_USER_ACTIONS
 from emmet.types import User
@@ -32,15 +33,37 @@ def update_existing_user(
     existing_user_id = existing_user.get("id")
     existing_username = existing_user.get("username")
 
-    logger.info(f"Updating existing user {existing_username} ({user.email})...")
+    # Check for changes
+    changes = []
+    if existing_user.get("email") != user.email:
+        changes.append(f"email: {existing_user.get('email')} → {user.email}")
+    if existing_user.get("firstName") != user.firstName:
+        changes.append(
+            f"firstName: {existing_user.get('firstName')} → {user.firstName}"
+        )
+    if existing_user.get("lastName") != user.lastName:
+        changes.append(f"lastName: {existing_user.get('lastName')} → {user.lastName}")
 
-    if not dry_run and existing_user_id:
-        update_payload = {
-            "email": user.email,
-            "firstName": user.firstName,
-            "lastName": user.lastName,
-        }
-        keycloak_admin.update_user(existing_user_id, update_payload)
+    if changes:
+        message = f"Updating existing user {existing_username} ({user.email})..."
+        if dry_run:
+            click.echo(message)
+            click.echo(f"  Changes: {', '.join(changes)}")
+        else:
+            logger.info(message)
+            if existing_user_id:
+                update_payload = {
+                    "email": user.email,
+                    "firstName": user.firstName,
+                    "lastName": user.lastName,
+                }
+                keycloak_admin.update_user(existing_user_id, update_payload)
+    else:
+        message = f"User {existing_username} ({user.email}) is already up-to-date"
+        if dry_run:
+            click.echo(message)
+        else:
+            logger.info(message)
 
 
 def create_new_user(
@@ -59,14 +82,23 @@ def create_new_user(
         user: The user data from Excel
         dry_run: If True, only log actions without executing them
     """
-    logger.info(f"Creating new user {user.username} ({user.email})...")
+    message = f"Creating new user {user.username} ({user.email})..."
 
-    if not dry_run:
+    if dry_run:
+        click.echo(message)
+        click.echo(
+            f"  New user details: username={user.username}, email={user.email}, "
+            f"firstName={user.firstName}, lastName={user.lastName}"
+        )
+        if INITIAL_GROUPS:
+            click.echo(f"  Will be added to groups: {', '.join(INITIAL_GROUPS)}")
+    else:
+        logger.info(message)
         # Generate a secure random password (not meant to be remembered)
         # This allows Keycloak to show password dialog and send reset emails
         random_password = secrets.token_urlsafe(32)
 
-        keycloak_admin.create_user(
+        new_user_id = keycloak_admin.create_user(
             {
                 "username": user.username,
                 "email": user.email,
@@ -86,6 +118,24 @@ def create_new_user(
             }
         )
 
+        # Add user to initial groups
+        if new_user_id and INITIAL_GROUPS:
+            for group_name in INITIAL_GROUPS:
+                try:
+                    # Get group by name
+                    groups = keycloak_admin.get_groups({"search": group_name})
+                    matching_group = next(
+                        (g for g in groups if g.get("name") == group_name), None
+                    )
+                    if matching_group:
+                        group_id = matching_group.get("id")
+                        keycloak_admin.group_user_add(new_user_id, group_id)
+                        logger.info(f"Added user to group: {group_name}")
+                    else:
+                        logger.warning(f"Group not found: {group_name}")
+                except KeycloakError as e:
+                    logger.error(f"Error adding user to group {group_name}: {e}")
+
 
 def disable_user(
     keycloak_admin: KeycloakAdmin,
@@ -102,9 +152,13 @@ def disable_user(
     kc_username = kc_user.get("username")
     kc_email = kc_user.get("email")
 
-    logger.info(f"Disabling user {kc_username} ({kc_email})...")
+    message = f"Disabling user {kc_username} ({kc_email})..."
 
-    if not dry_run:
+    if dry_run:
+        click.echo(message)
+        click.echo(f"  Change: enabled: {kc_user.get('enabled', True)} → False")
+    else:
+        logger.info(message)
         try:
             user_id = kc_user.get("id")
             if user_id:
@@ -142,6 +196,11 @@ def disable_user(
 @click.option(
     "--dry-run", is_flag=True, help="Only print actions, do not execute them."
 )
+@click.option(
+    "--email",
+    default=None,
+    help="Only sync user with this email address.",
+)
 def sync(
     excel_file: str,
     keycloak_server: str,
@@ -149,9 +208,13 @@ def sync(
     keycloak_client_id: str,
     keycloak_client_secret: str,
     dry_run: bool,
+    email: str | None,
 ) -> None:
     """Synchronize users from an Excel file to Keycloak using auto-detection."""
     click.echo(f"Synchronizing users from {excel_file}...")
+
+    if email:
+        click.echo(f"Filtering to only sync user with email: {email}")
 
     # Read users from Excel file using auto-detection
     excel_users: list[User] = parse_excel_users(excel_file, None)
@@ -160,6 +223,14 @@ def sync(
             "No users found in the Excel file or an error occurred during parsing."
         )
         return
+
+    # Filter by email if specified
+    if email:
+        excel_users = [user for user in excel_users if user.email == email]
+        if not excel_users:
+            logger.error(f"No user found with email: {email}")
+            return
+        logger.info(f"Found user in Excel: {excel_users[0].username} ({email})")
 
     # Connect to Keycloak
     try:
@@ -181,6 +252,12 @@ def sync(
         keycloak_users_by_email = {
             user.get("email"): user for user in keycloak_users if user.get("email")
         }
+
+        # Filter Keycloak users if email is specified
+        if email:
+            keycloak_users = [
+                user for user in keycloak_users if user.get("email") == email
+            ]
     except KeycloakError as e:
         logger.error(f"Error getting users from Keycloak: {e}")
         return
@@ -208,25 +285,27 @@ def sync(
             logger.error(f"Error syncing user {username} ({user.email}): {e}")
 
     # Disable users in Keycloak that are not in the Excel file
-    excel_emails = [user.email for user in excel_users if user.email]
-    for kc_user in keycloak_users:
-        kc_username = kc_user.get("username")
-        kc_email = kc_user.get("email")
+    # Skip this step if we're filtering by email (only syncing one specific user)
+    if not email:
+        excel_emails = [user.email for user in excel_users if user.email]
+        for kc_user in keycloak_users:
+            kc_username = kc_user.get("username")
+            kc_email = kc_user.get("email")
 
-        # Skip if user is in Excel file
-        if kc_email and kc_email in excel_emails:
-            continue
+            # Skip if user is in Excel file
+            if kc_email and kc_email in excel_emails:
+                continue
 
-        # Skip if email is in protected list
-        if kc_email and kc_email in PROTECTED_USERS:
-            logger.info(f"Skipping protected user {kc_username} ({kc_email})")
-            continue
+            # Skip if email is in protected list
+            if kc_email and kc_email in PROTECTED_USERS:
+                logger.info(f"Skipping protected user {kc_username} ({kc_email})")
+                continue
 
-        # Skip if username is "admin" (hardcoded protection)
-        if kc_username == "admin":
-            logger.info(f"Skipping admin user {kc_username}")
-            continue
+            # Skip if username is "admin" (hardcoded protection)
+            if kc_username == "admin":
+                logger.info(f"Skipping admin user {kc_username}")
+                continue
 
-        # Disable the user
-        if kc_email:
-            disable_user(keycloak_admin, kc_user, dry_run)
+            # Disable the user
+            if kc_email:
+                disable_user(keycloak_admin, kc_user, dry_run)

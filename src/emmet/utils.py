@@ -50,13 +50,13 @@ def detect_name_column(
     ws: Worksheet, header: List[str], email_col_idx: Optional[int]
 ) -> Optional[int]:
     """
-    Detect which column contains full names (two words: first_name last_name).
+    Detect which column contains full names (two or more words: first_name [middle_name(s)] last_name).
 
     Returns the column index (0-based) or None if no name column is found.
     """
-    two_word_pattern = re.compile(r"^\s*\S+\s+\S+\s*$")
+    two_or_more_word_pattern = re.compile(r"^\s*\S+\s+\S+.*$")
 
-    # Count two-word matches per column
+    # Count two-or-more-word matches per column
     column_name_counts: Dict[int, int] = {}
 
     for row in ws.iter_rows(
@@ -68,10 +68,10 @@ def detect_name_column(
                 continue
 
             if cell.value and isinstance(cell.value, str):
-                if two_word_pattern.match(cell.value.strip()):
+                if two_or_more_word_pattern.match(cell.value.strip()):
                     column_name_counts[col_idx] = column_name_counts.get(col_idx, 0) + 1
 
-    # Return column with most two-word matches (at least 1)
+    # Return column with most two-or-more-word matches (at least 1)
     if column_name_counts:
         name_col_idx = max(column_name_counts, key=lambda k: column_name_counts[k])
         logger.info(
@@ -97,16 +97,20 @@ def should_skip_row(row: Any) -> bool:
 
 def parse_name_field(name_str: str) -> Tuple[Optional[str], Optional[str]]:
     """
-    Parse a name string containing two words into first_name and last_name.
+    Parse a name string into first_name and last_name.
+
+    - If the name has two or more parts: first part is first_name, last part is last_name
+    - Middle parts are ignored
+    - If only one part: it becomes first_name, last_name is None
 
     Returns (first_name, last_name) tuple.
     """
     if not name_str:
         return None, None
 
-    parts = name_str.strip().split(None, 1)  # Split on whitespace, max 2 parts
-    if len(parts) == 2:
-        return parts[0], parts[1]
+    parts = name_str.strip().split()  # Split on whitespace
+    if len(parts) >= 2:
+        return parts[0], parts[-1]  # First and last part
     elif len(parts) == 1:
         return parts[0], None
 

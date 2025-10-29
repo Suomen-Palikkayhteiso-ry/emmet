@@ -99,6 +99,13 @@ def update_existing_user(
     if not existing_last_name and user.lastName:
         changes.append(f"lastName: (empty) → {user.lastName}")
 
+    # Check if email is verified
+    is_email_verified = existing_user.get("emailVerified", False)
+    if not is_email_verified:
+        logger.warning(
+            f"User {existing_username} ({user.email}) has not verified their email."
+        )
+
     if changes:
         message = f"Updating existing user {existing_username} ({user.email})..."
         if dry_run:

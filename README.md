@@ -27,16 +27,34 @@ devenv shell -- emmet -v dump-excel example.xlsx
 
 **`emmet dump-excel <excel_file>`**
 
-Parse and display user data from Excel file. Automatically detects email and name columns.
+Parse and display user data from Excel file.
 
 **`emmet sync <excel_file> [--dry-run]`**
 
-Synchronize users to Keycloak. Creates new users with UUID4 usernames, updates existing users by email, and disables users not in Excel.
+Synchronize active members to Keycloak. Creates new users with UUID4 usernames, updates existing users by email, and disables users not in the active member set.
 
 The tool automatically:
-- Detects email column by scanning for valid email addresses
-- Detects name column by finding cells with two words (first_name last_name)
-- Skips rows containing "eronnut" (case-insensitive)
+- Prefers known membership sheet headers (Finnish) and falls back to heuristics when needed
+- Skips rows marked as resigned (`Eronnut` is true) or containing `eronnut`
+- Skips special-case emails: `palikkaharrastajatry@outlook.com` and `palikkaharrastajatry+...@outlook.com`
+- Maps `Liittymispäivä` to `registrationDate` and `Jäsenmaksu` to `paymentDate`
+- Provisions only active members based on `Jäsenmaksu`:
+  - Membership paid in year `Y` is valid through `Y+1-12-31`
+  - Example: payment `2024-04-30` is valid until `2025-12-31`
+- Columns `Ei äänioikeutta` and `Puhelin` are currently parsed but not synchronized to Keycloak attributes
+
+Expected spreadsheet columns:
+- `Nimi`
+- `Kotikaupunki`
+- `Discord`
+- `Bricklink`
+- `Brickowl`
+- `Liittymispäivä`
+- `Jäsenmaksu`
+- `Ei äänioikeutta` (boolean)
+- `Eronnut` (boolean)
+- `Sähköposti`
+- `Puhelin`
 
 ### Keycloak Configuration
 
@@ -64,10 +82,11 @@ Edit `src/emmet/constants.py` to configure protected email addresses that won't 
 
 ```python
 PROTECTED_USERS = [
-    "admin",
     "suomenpalikkayhteisory@outlook.com",
     "suomenpalikkayhteisory+dummy@outlook.com",
+    "palikkaharrastajatry@outlook.com",
 ]
 ```
 
-**Note:** The username `"admin"` is always protected regardless of email address.
+**Note:** The username `"admin"` is always protected regardless of email address.  
+Emails matching `palikkaharrastajatry+...@outlook.com` are also always skipped.

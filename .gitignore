@@ -2,8 +2,10 @@
 __pycache__
 
 # Devenv
+.devcontainer.json
 .devenv*
 devenv.local.nix
+devenv.local.yaml
 
 # direnv
 .direnv

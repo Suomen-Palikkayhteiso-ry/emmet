@@ -10,7 +10,10 @@ class User(BaseModel):
     lastName: Optional[str] = None
     fullName: Optional[str] = None
     hometown: Optional[str] = None
-    effectiveDate: Optional[str] = None
-    expirationDate: Optional[str] = None
+    registrationDate: Optional[str] = None
+    paymentDate: Optional[str] = None
     discord: Optional[str] = None
     bricklink: Optional[str] = None
+    brickowl: Optional[str] = None
+    noVotingRights: Optional[bool] = None
+    phone: Optional[str] = None

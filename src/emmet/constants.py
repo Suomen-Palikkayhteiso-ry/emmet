@@ -4,6 +4,7 @@
 PROTECTED_USERS: list[str] = [
     "suomenpalikkayhteisory@outlook.com",
     "suomenpalikkayhteisory+dummy@outlook.com",
+    "palikkaharrastajatry@outlook.com",
 ]
 
 # List of required user actions for newly created Keycloak users.

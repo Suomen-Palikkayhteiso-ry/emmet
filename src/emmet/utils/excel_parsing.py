@@ -1,7 +1,6 @@
 """Excel file parsing utilities."""
 
 from emmet.types import User
-from emmet.utils.column_detection import detect_column_by_name
 from emmet.utils.column_detection import detect_date_columns
 from emmet.utils.column_detection import detect_email_column
 from emmet.utils.column_detection import detect_header_row
@@ -13,18 +12,107 @@ from typing import List
 from typing import Optional
 import datetime
 import logging
+import unicodedata
 import uuid
 
 
 logger = logging.getLogger(__name__)
 
 
-def should_skip_row(row: Any) -> bool:
-    """
-    Check if a row should be skipped based on the presence of 'eronnut' (case-insensitive).
+def normalize_header(value: str) -> str:
+    """Normalize a header or string for accent-insensitive comparisons."""
+    normalized = unicodedata.normalize("NFKD", value)
+    without_diacritics = "".join(
+        char for char in normalized if not unicodedata.combining(char)
+    )
+    return "".join(
+        char for char in without_diacritics.lower().strip() if char.isalnum()
+    )
 
+
+def find_column_by_aliases(header: List[str], aliases: List[str]) -> Optional[int]:
+    """Find a column index by matching accent-insensitive aliases in headers."""
+    normalized_aliases = [normalize_header(alias) for alias in aliases if alias]
+    for col_idx, header_value in enumerate(header):
+        normalized_header = normalize_header(header_value)
+        if not normalized_header:
+            continue
+        for alias in normalized_aliases:
+            if alias and alias in normalized_header:
+                return col_idx
+    return None
+
+
+def get_cell_value(row: Any, col_idx: Optional[int]) -> Any:
+    """Safely get a cell value from a row by column index."""
+    if col_idx is None or col_idx < 0 or col_idx >= len(row):
+        return None
+    return row[col_idx].value
+
+
+def get_string_cell_value(row: Any, col_idx: Optional[int]) -> Optional[str]:
+    """Get a trimmed string value from a row/column pair."""
+    value = get_cell_value(row, col_idx)
+    if value is None:
+        return None
+    value_str = str(value).strip()
+    return value_str if value_str else None
+
+
+def format_date_cell(value: Any) -> Optional[str]:
+    """Format an Excel date-like value as dd.mm.yyyy when possible."""
+    if value is None:
+        return None
+    if isinstance(value, datetime.datetime):
+        return value.strftime("%d.%m.%Y")
+    if isinstance(value, datetime.date):
+        return value.strftime("%d.%m.%Y")
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped if stripped else None
+    return None
+
+
+def parse_boolean_cell(value: Any) -> Optional[bool]:
+    """Parse common spreadsheet boolean values."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+        return None
+    if isinstance(value, float):
+        if value == 1.0:
+            return True
+        if value == 0.0:
+            return False
+        return None
+    if isinstance(value, str):
+        normalized = normalize_header(value)
+        if normalized in {"true", "1", "yes", "y", "kylla", "x"}:
+            return True
+        if normalized in {"false", "0", "no", "n", "ei"}:
+            return False
+    return None
+
+
+def should_skip_row(row: Any, resigned_col_idx: Optional[int] = None) -> bool:
+    """
+    Check if a row should be skipped based on resigned status.
+
+    Returns True if:
+    - the explicit 'Eronnut' boolean column is true, or
+    - any string cell contains 'eronnut' (case-insensitive).
     Returns True if the row should be skipped, False otherwise.
     """
+    resigned_value = parse_boolean_cell(get_cell_value(row, resigned_col_idx))
+    if resigned_value is True:
+        return True
+
     for cell in row:
         if cell.value and isinstance(cell.value, str):
             if "eronnut" in cell.value.lower():
@@ -36,12 +124,11 @@ def parse_excel_users(
     file_path: str, _column_mapping: Optional[Any] = None
 ) -> List[User]:
     """
-    Parse users from an Excel file using auto-detection heuristics.
+    Parse users from an Excel file.
 
-    - Finds email column by scanning for email addresses
-    - Finds name column by looking for cells with two words (first_name last_name)
+    - Prefers known Finnish headers and falls back to heuristics when needed
     - Generates UUID4 username for each user
-    - Skips rows containing 'eronnut' (case-insensitive)
+    - Skips rows marked as resigned ('Eronnut')
     """
     users: List[User] = []
 
@@ -59,39 +146,70 @@ def parse_excel_users(
             for cell in ws[header_row_num]
         ]
 
-        # Use heuristic approach to detect columns
-        email_col_idx = detect_email_column(ws, header, header_row_num)
+        # Prefer explicit Finnish headers, then fall back to heuristics
+        name_col_idx = find_column_by_aliases(header, ["nimi", "name"])
+        hometown_col_idx = find_column_by_aliases(
+            header, ["kotikaupunki", "hometown", "city"]
+        )
+        discord_col_idx = find_column_by_aliases(header, ["discord"])
+        bricklink_col_idx = find_column_by_aliases(header, ["bricklink"])
+        brickowl_col_idx = find_column_by_aliases(header, ["brickowl"])
+        registration_date_col_idx = find_column_by_aliases(
+            header, ["liittymispäivä", "liittymispaiva", "joined", "join date"]
+        )
+        payment_date_col_idx = find_column_by_aliases(
+            header,
+            [
+                "jäsenmaksu",
+                "jasenmaksu",
+                "membership payment",
+                "membership fee",
+                "last payment",
+            ],
+        )
+        no_voting_rights_col_idx = find_column_by_aliases(
+            header, ["ei äänioikeutta", "ei aanioikeutta", "no voting rights"]
+        )
+        resigned_col_idx = find_column_by_aliases(header, ["eronnut", "resigned"])
+        email_col_idx = find_column_by_aliases(
+            header, ["sähköposti", "sahkoposti", "email"]
+        )
+        phone_col_idx = find_column_by_aliases(header, ["puhelin", "phone"])
+
+        if email_col_idx is None:
+            email_col_idx = detect_email_column(ws, header, header_row_num)
         if email_col_idx is None:
             logger.error("Could not detect email column in Excel file")
             return []
 
-        name_col_idx = detect_name_column(ws, header, email_col_idx, header_row_num)
+        if name_col_idx is None:
+            name_col_idx = detect_name_column(ws, header, email_col_idx, header_row_num)
 
-        # Hometown is always the next column after name
-        hometown_col_idx = (name_col_idx + 1) if name_col_idx is not None else None
+        # Hometown fallback: next column after name if no explicit header found
+        if hometown_col_idx is None and name_col_idx is not None:
+            hometown_col_idx = name_col_idx + 1
 
-        # Detect date columns (skip email, name, and hometown columns)
-        skip_cols = [email_col_idx]
-        if name_col_idx is not None:
-            skip_cols.append(name_col_idx)
-        if hometown_col_idx is not None:
-            skip_cols.append(hometown_col_idx)
-
-        effective_date_col_idx, expiration_date_col_idx = detect_date_columns(
+        # Date fallbacks for older sheets
+        skip_cols = [
+            col
+            for col in [email_col_idx, name_col_idx, hometown_col_idx]
+            if col is not None
+        ]
+        first_date_col_idx, second_date_col_idx = detect_date_columns(
             ws, header, skip_cols, header_row_num
         )
 
-        # Detect discord and bricklink columns by header name
-        discord_col_idx = detect_column_by_name(header, "discord")
-        bricklink_col_idx = detect_column_by_name(header, "bricklink")
+        if registration_date_col_idx is None:
+            registration_date_col_idx = first_date_col_idx
+        if payment_date_col_idx is None:
+            payment_date_col_idx = second_date_col_idx
 
         logger.info(
-            f"Using heuristic parsing: email column at index {email_col_idx}, "
-            f"name column at index {name_col_idx}, hometown column at index {hometown_col_idx}, "
-            f"effectiveDate column at index {effective_date_col_idx}, "
-            f"expirationDate column at index {expiration_date_col_idx}, "
+            f"Using parsing: email={email_col_idx}, name={name_col_idx}, hometown={hometown_col_idx}, "
+            f"registrationDate={registration_date_col_idx}, paymentDate={payment_date_col_idx}, "
             f"discord column at index {discord_col_idx}, "
-            f"bricklink column at index {bricklink_col_idx}"
+            f"bricklink column at index {bricklink_col_idx}, brickowl={brickowl_col_idx}, "
+            f"noVotingRights={no_voting_rights_col_idx}, resigned={resigned_col_idx}, phone={phone_col_idx}"
         )
 
         # Start processing rows after the header row
@@ -99,18 +217,13 @@ def parse_excel_users(
         for row_idx, row in enumerate(
             ws.iter_rows(min_row=data_start_row), start=data_start_row
         ):
-            # Skip rows containing 'eronnut'
-            if should_skip_row(row):
-                logger.info(f"Skipping row {row_idx}: contains 'eronnut'")
+            # Skip rows marked as resigned
+            if should_skip_row(row, resigned_col_idx):
+                logger.info(f"Skipping row {row_idx}: marked as resigned")
                 continue
 
             # Extract email
-            email_cell = row[email_col_idx] if email_col_idx < len(row) else None
-            email = (
-                str(email_cell.value).strip()
-                if email_cell and email_cell.value
-                else None
-            )
+            email = get_string_cell_value(row, email_col_idx)
 
             if not email:
                 logger.warning(f"Skipping row {row_idx}: no email found")
@@ -120,57 +233,23 @@ def parse_excel_users(
             first_name = None
             last_name = None
             full_name = None
-            if name_col_idx is not None and name_col_idx < len(row):
-                name_cell = row[name_col_idx]
-                if name_cell and name_cell.value:
-                    full_name = str(name_cell.value).strip()
-                    first_name, last_name = parse_name_field(full_name)
+            full_name = get_string_cell_value(row, name_col_idx)
+            if full_name:
+                first_name, last_name = parse_name_field(full_name)
 
-            # Extract hometown (next column after name)
-            hometown = None
-            if hometown_col_idx is not None and hometown_col_idx < len(row):
-                hometown_cell = row[hometown_col_idx]
-                if hometown_cell and hometown_cell.value:
-                    hometown = str(hometown_cell.value).strip()
+            hometown = get_string_cell_value(row, hometown_col_idx)
+            discord = get_string_cell_value(row, discord_col_idx)
+            bricklink = get_string_cell_value(row, bricklink_col_idx)
+            brickowl = get_string_cell_value(row, brickowl_col_idx)
+            phone = get_string_cell_value(row, phone_col_idx)
 
-            # Extract dates (as strings)
-            effective_date = None
-            if effective_date_col_idx is not None and effective_date_col_idx < len(row):
-                date_cell = row[effective_date_col_idx]
-                if date_cell and date_cell.value:
-                    # Handle both string and datetime objects
-                    if isinstance(date_cell.value, str):
-                        effective_date = date_cell.value.strip()
-                    elif isinstance(date_cell.value, datetime.datetime):
-                        # Convert datetime to dd.mm.yyyy format
-                        effective_date = date_cell.value.strftime("%d.%m.%Y")
-
-            expiration_date = None
-            if expiration_date_col_idx is not None and expiration_date_col_idx < len(
-                row
-            ):
-                date_cell = row[expiration_date_col_idx]
-                if date_cell and date_cell.value:
-                    # Handle both string and datetime objects
-                    if isinstance(date_cell.value, str):
-                        expiration_date = date_cell.value.strip()
-                    elif isinstance(date_cell.value, datetime.datetime):
-                        # Convert datetime to dd.mm.yyyy format
-                        expiration_date = date_cell.value.strftime("%d.%m.%Y")
-
-            # Extract discord
-            discord = None
-            if discord_col_idx is not None and discord_col_idx < len(row):
-                discord_cell = row[discord_col_idx]
-                if discord_cell and discord_cell.value:
-                    discord = str(discord_cell.value).strip()
-
-            # Extract bricklink
-            bricklink = None
-            if bricklink_col_idx is not None and bricklink_col_idx < len(row):
-                bricklink_cell = row[bricklink_col_idx]
-                if bricklink_cell and bricklink_cell.value:
-                    bricklink = str(bricklink_cell.value).strip()
+            registration_date = format_date_cell(
+                get_cell_value(row, registration_date_col_idx)
+            )
+            payment_date = format_date_cell(get_cell_value(row, payment_date_col_idx))
+            no_voting_rights = parse_boolean_cell(
+                get_cell_value(row, no_voting_rights_col_idx)
+            )
 
             # Generate UUID4 username for new users
             username = str(uuid.uuid4())
@@ -183,10 +262,13 @@ def parse_excel_users(
                     lastName=last_name,
                     fullName=full_name,
                     hometown=hometown,
-                    effectiveDate=effective_date,
-                    expirationDate=expiration_date,
+                    registrationDate=registration_date,
+                    paymentDate=payment_date,
                     discord=discord,
                     bricklink=bricklink,
+                    brickowl=brickowl,
+                    noVotingRights=no_voting_rights,
+                    phone=phone,
                 )
                 users.append(user)
                 logger.info(f"Parsed user from row {row_idx}: {email} -> {username}")

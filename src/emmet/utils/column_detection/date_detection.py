@@ -22,7 +22,7 @@ def detect_date_columns(
     Detect which columns contain dates in dd.mm.yyyy format.
 
     Returns a tuple of (first_date_col_idx, second_date_col_idx).
-    The first date is effectiveDate, the second is expirationDate.
+    In current usage, first date maps to registrationDate and second to paymentDate.
     """
     # Pattern for dd.mm.yyyy format (as string or datetime)
     date_pattern = re.compile(r"^\d{1,2}\.\d{1,2}\.\d{4}$")
@@ -56,16 +56,16 @@ def detect_date_columns(
         [col_idx for col_idx, count in column_date_counts.items() if count > 0]
     )
 
-    effective_date_col = date_columns[0] if len(date_columns) >= 1 else None
-    expiration_date_col = date_columns[1] if len(date_columns) >= 2 else None
+    first_date_col = date_columns[0] if len(date_columns) >= 1 else None
+    second_date_col = date_columns[1] if len(date_columns) >= 2 else None
 
-    if effective_date_col is not None:
+    if first_date_col is not None:
         logger.info(
-            f"Detected effectiveDate column: '{header[effective_date_col]}' (index {effective_date_col})"
+            f"Detected first date column: '{header[first_date_col]}' (index {first_date_col})"
         )
-    if expiration_date_col is not None:
+    if second_date_col is not None:
         logger.info(
-            f"Detected expirationDate column: '{header[expiration_date_col]}' (index {expiration_date_col})"
+            f"Detected second date column: '{header[second_date_col]}' (index {second_date_col})"
         )
 
-    return effective_date_col, expiration_date_col
+    return first_date_col, second_date_col

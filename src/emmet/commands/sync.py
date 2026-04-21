@@ -9,11 +9,76 @@ from keycloak import KeycloakAdmin
 from keycloak.exceptions import KeycloakError
 from typing import Any
 import click
+import datetime
 import logging
+import re
 import secrets
 
 
 logger = logging.getLogger(__name__)
+
+
+def get_attribute_value(attributes: dict[str, Any], key: str) -> str | None:
+    """Return the first Keycloak attribute value as a string."""
+    value = attributes.get(key)
+    if isinstance(value, list):
+        if not value:
+            return None
+        first = value[0]
+        return str(first) if first is not None else None
+    return str(value) if value is not None else None
+
+
+def should_skip_special_email(email: str | None) -> bool:
+    """Return True for protected/system emails that must be skipped."""
+    if not email:
+        return False
+
+    normalized_email = email.strip().lower()
+
+    if normalized_email in PROTECTED_USERS:
+        return True
+
+    if normalized_email == "palikkaharrastajatry@outlook.com":
+        return True
+
+    return (
+        re.match(r"^palikkaharrastajatry\+[^@]+@outlook\.com$", normalized_email)
+        is not None
+    )
+
+
+def parse_payment_date(value: str | None) -> datetime.date | None:
+    """Parse common date formats used in payment date column."""
+    if value is None:
+        return None
+    date_value = value.strip()
+    if not date_value:
+        return None
+
+    for date_format in ("%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            return datetime.datetime.strptime(date_value, date_format).date()
+        except ValueError:
+            continue
+    return None
+
+
+def membership_valid_until(value: str | None) -> datetime.date | None:
+    """Membership is valid through the end of year after the payment year."""
+    payment_date = parse_payment_date(value)
+    if payment_date is None:
+        return None
+    return datetime.date(payment_date.year + 1, 12, 31)
+
+
+def is_membership_active(user: User, today: datetime.date | None = None) -> bool:
+    """Return whether the user should be provisioned based on payment date."""
+    valid_until = membership_valid_until(user.paymentDate)
+    if valid_until is None:
+        return False
+    reference_date = today or datetime.date.today()
+    return reference_date <= valid_until
 
 
 def update_existing_user(
@@ -37,35 +102,25 @@ def update_existing_user(
 
     # Get existing attributes
     existing_attributes = existing_user.get("attributes", {})
-    existing_fullname = (
-        existing_attributes.get("fullName", [None])[0]
-        if existing_attributes.get("fullName")
-        else None
-    )
-    existing_hometown = (
-        existing_attributes.get("hometown", [None])[0]
-        if existing_attributes.get("hometown")
-        else None
-    )
-    existing_effective_date = (
-        existing_attributes.get("effectiveDate", [None])[0]
-        if existing_attributes.get("effectiveDate")
-        else None
-    )
-    existing_expiration_date = (
-        existing_attributes.get("expirationDate", [None])[0]
-        if existing_attributes.get("expirationDate")
-        else None
-    )
-    existing_discord = (
-        existing_attributes.get("discord", [None])[0]
-        if existing_attributes.get("discord")
-        else None
-    )
-    existing_bricklink = (
-        existing_attributes.get("bricklink", [None])[0]
-        if existing_attributes.get("bricklink")
-        else None
+    existing_fullname = get_attribute_value(existing_attributes, "fullName")
+    existing_hometown = get_attribute_value(existing_attributes, "hometown")
+    existing_registration_date = get_attribute_value(
+        existing_attributes, "registrationDate"
+    ) or get_attribute_value(existing_attributes, "effectiveDate")
+    existing_payment_date = get_attribute_value(
+        existing_attributes, "paymentDate"
+    ) or get_attribute_value(existing_attributes, "expirationDate")
+    existing_discord = get_attribute_value(existing_attributes, "discord")
+    existing_bricklink = get_attribute_value(existing_attributes, "bricklink")
+    existing_brickowl = get_attribute_value(existing_attributes, "brickowl")
+    legacy_date_keys_present = any(
+        key in existing_attributes
+        for key in [
+            "effectiveDate",
+            "expirationDate",
+            "joinedDate",
+            "membershipPaymentDate",
+        ]
     )
 
     # Get existing first and last names
@@ -84,18 +139,25 @@ def update_existing_user(
         changes.append(f"fullName attribute: {existing_fullname} → {user.fullName}")
     if existing_hometown != user.hometown:
         changes.append(f"hometown attribute: {existing_hometown} → {user.hometown}")
-    if existing_effective_date != user.effectiveDate:
+    if existing_registration_date != user.registrationDate:
         changes.append(
-            f"effectiveDate attribute: {existing_effective_date} → {user.effectiveDate}"
+            "registrationDate attribute: "
+            f"{existing_registration_date} → {user.registrationDate}"
         )
-    if existing_expiration_date != user.expirationDate:
+    if existing_payment_date != user.paymentDate:
         changes.append(
-            f"expirationDate attribute: {existing_expiration_date} → {user.expirationDate}"
+            f"paymentDate attribute: {existing_payment_date} → {user.paymentDate}"
         )
     if existing_discord != user.discord:
         changes.append(f"discord attribute: {existing_discord} → {user.discord}")
     if existing_bricklink != user.bricklink:
         changes.append(f"bricklink attribute: {existing_bricklink} → {user.bricklink}")
+    if existing_brickowl != user.brickowl:
+        changes.append(f"brickowl attribute: {existing_brickowl} → {user.brickowl}")
+    if legacy_date_keys_present:
+        changes.append(
+            "migrating legacy date attributes to registrationDate/paymentDate"
+        )
     if not existing_first_name and user.firstName:
         changes.append(f"firstName: (empty) → {user.firstName}")
     if not existing_last_name and user.lastName:
@@ -110,25 +172,33 @@ def update_existing_user(
         message = f"Updating existing user {existing_username} ({user.email})..."
         if dry_run:
             click.echo(message)
-            click.echo(f"  Changes: {', '.join(changes)}")
+            for change in changes:
+                click.echo(f"  - {change}")
         else:
             if verbose:
                 logger.info(message)
             if existing_user_id:
                 # Prepare attributes update
                 attributes = existing_attributes.copy()
+                # Remove legacy aliases when moving to canonical names.
+                attributes.pop("effectiveDate", None)
+                attributes.pop("expirationDate", None)
+                attributes.pop("joinedDate", None)
+                attributes.pop("membershipPaymentDate", None)
                 if user.fullName:
                     attributes["fullName"] = [user.fullName]
                 if user.hometown:
                     attributes["hometown"] = [user.hometown]
-                if user.effectiveDate:
-                    attributes["effectiveDate"] = [user.effectiveDate]
-                if user.expirationDate:
-                    attributes["expirationDate"] = [user.expirationDate]
+                if user.registrationDate:
+                    attributes["registrationDate"] = [user.registrationDate]
+                if user.paymentDate:
+                    attributes["paymentDate"] = [user.paymentDate]
                 if user.discord:
                     attributes["discord"] = [user.discord]
                 if user.bricklink:
                     attributes["bricklink"] = [user.bricklink]
+                if user.brickowl:
+                    attributes["brickowl"] = [user.brickowl]
 
                 # Use existing firstName/lastName if present, otherwise use new from Excel
                 update_payload = {
@@ -190,14 +260,16 @@ def create_new_user(
             attributes["fullName"] = [user.fullName]
         if user.hometown:
             attributes["hometown"] = [user.hometown]
-        if user.effectiveDate:
-            attributes["effectiveDate"] = [user.effectiveDate]
-        if user.expirationDate:
-            attributes["expirationDate"] = [user.expirationDate]
+        if user.registrationDate:
+            attributes["registrationDate"] = [user.registrationDate]
+        if user.paymentDate:
+            attributes["paymentDate"] = [user.paymentDate]
         if user.discord:
             attributes["discord"] = [user.discord]
         if user.bricklink:
             attributes["bricklink"] = [user.bricklink]
+        if user.brickowl:
+            attributes["brickowl"] = [user.brickowl]
 
         new_user_id = keycloak_admin.create_user(
             {
@@ -260,7 +332,7 @@ def disable_user(
 
     if dry_run:
         click.echo(message)
-        click.echo(f"  Change: enabled: {kc_user.get('enabled', True)} → False")
+        click.echo(f"  - enabled: {kc_user.get('enabled', True)} → False")
     else:
         if verbose:
             logger.info(message)
@@ -326,6 +398,9 @@ def sync(
 
     if email:
         click.echo(f"Filtering to only sync user with email: {email}")
+        if should_skip_special_email(email):
+            logger.info(f"Skipping special-case email: {email}")
+            return
 
     # Read users from Excel file using auto-detection
     excel_users: list[User] = parse_excel_users(excel_file, None)
@@ -342,6 +417,47 @@ def sync(
             logger.error(f"No user found with email: {email}")
             return
         logger.info(f"Found user in Excel: {excel_users[0].username} ({email})")
+
+    # Keep only active members for provisioning:
+    # last membership payment year grants access through end of following year.
+    today = datetime.date.today()
+    active_excel_users: list[User] = []
+    inactive_excel_users: list[User] = []
+    for user in excel_users:
+        if should_skip_special_email(user.email):
+            logger.info(f"Skipping special-case email: {user.email}")
+            continue
+
+        valid_until = membership_valid_until(user.paymentDate)
+        if valid_until is None:
+            inactive_excel_users.append(user)
+            logger.warning(
+                f"Skipping user {user.email}: missing or invalid payment date "
+                f"'{user.paymentDate}'"
+            )
+            continue
+
+        if is_membership_active(user, today):
+            active_excel_users.append(user)
+            continue
+
+        inactive_excel_users.append(user)
+        if verbose or dry_run:
+            click.echo(
+                f"Skipping inactive member {user.email}: membership valid until {valid_until.isoformat()}"
+            )
+
+    if email and not active_excel_users:
+        logger.error(
+            f"User {email} is not active: payment date is missing, invalid, or expired."
+        )
+        return
+
+    if verbose:
+        logger.info(
+            f"Provisioning {len(active_excel_users)} active users and skipping "
+            f"{len(inactive_excel_users)} inactive users."
+        )
 
     # Connect to Keycloak
     try:
@@ -374,7 +490,7 @@ def sync(
         return
 
     # Sync users from Excel to Keycloak
-    for user in excel_users:
+    for user in active_excel_users:
         username = user.username
         if not username:
             logger.warning(f"Skipping user with missing username: {user}")
@@ -400,7 +516,7 @@ def sync(
     # Disable users in Keycloak that are not in the Excel file
     # Skip this step if we're filtering by email (only syncing one specific user)
     if not email:
-        excel_emails = [user.email for user in excel_users if user.email]
+        excel_emails = [user.email for user in active_excel_users if user.email]
         for kc_user in keycloak_users:
             kc_username = kc_user.get("username")
             kc_email = kc_user.get("email")
@@ -409,8 +525,8 @@ def sync(
             if kc_email and kc_email in excel_emails:
                 continue
 
-            # Skip if email is in protected list
-            if kc_email and kc_email in PROTECTED_USERS:
+            # Skip protected/special-case emails
+            if should_skip_special_email(kc_email):
                 logger.info(f"Skipping protected user {kc_username} ({kc_email})")
                 continue
 

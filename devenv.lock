@@ -3,10 +3,11 @@
     "devenv": {
       "locked": {
         "dir": "src/modules",
-        "lastModified": 1747185494,
+        "lastModified": 1776778536,
+        "narHash": "sha256-P+w7Gons5V+q/Ezfjr/xhq+jAL15Ou2RqY8he8QUaXc=",
         "owner": "cachix",
         "repo": "devenv",
-        "rev": "b292bc94c2daccda165bc9f909bf6c8056e37a80",
+        "rev": "45021a3d572bc961ba63006969390d5ae9001af0",
         "type": "github"
       },
       "original": {
@@ -16,68 +17,44 @@
         "type": "github"
       }
     },
-    "flake-compat": {
+    "devenv-module-devcontainer": {
       "flake": false,
       "locked": {
-        "lastModified": 1747046372,
-        "owner": "edolstra",
-        "repo": "flake-compat",
-        "rev": "9100a0f413b0c601e0533d1d94ffd501ce2e7885",
+        "lastModified": 1776276762,
+        "narHash": "sha256-wgMcuVDk3iroDxQFi1+dEhXp9Nvd8N8Q84uI+U9UDg8=",
+        "owner": "datakurre",
+        "repo": "devenv-module-devcontainer",
+        "rev": "7a77a9b6d4a02878757407df9fe0778570158d81",
         "type": "github"
       },
       "original": {
-        "owner": "edolstra",
-        "repo": "flake-compat",
+        "owner": "datakurre",
+        "repo": "devenv-module-devcontainer",
         "type": "github"
       }
     },
-    "git-hooks": {
-      "inputs": {
-        "flake-compat": "flake-compat",
-        "gitignore": "gitignore",
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
+    "devenv-module-devcontainer-nixpkgs": {
       "locked": {
-        "lastModified": 1746537231,
-        "owner": "cachix",
-        "repo": "git-hooks.nix",
-        "rev": "fa466640195d38ec97cf0493d6d6882bc4d14969",
+        "lastModified": 1776787471,
+        "narHash": "sha256-CdCAwWgGtP4jEa69NVycarz6Zt6sYkraWqmIC23AUZs=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "f85af0ec3964fa6634fbca01881ecc9c1d5aac70",
         "type": "github"
       },
       "original": {
-        "owner": "cachix",
-        "repo": "git-hooks.nix",
-        "type": "github"
-      }
-    },
-    "gitignore": {
-      "inputs": {
-        "nixpkgs": [
-          "git-hooks",
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1709087332,
-        "owner": "hercules-ci",
-        "repo": "gitignore.nix",
-        "rev": "637db329424fd7e46cf4185293b9cc8c88c95394",
-        "type": "github"
-      },
-      "original": {
-        "owner": "hercules-ci",
-        "repo": "gitignore.nix",
+        "owner": "nixos",
+        "repo": "nixpkgs",
         "type": "github"
       }
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1761016216,
+        "lastModified": 1767313136,
+        "narHash": "sha256-16KkgfdYqjaeRGBaYsNrhPRRENs0qzkQVUooNHtoy2w=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "481cf557888e05d3128a76f14c76397b7d7cc869",
+        "rev": "ac62194c3917d5f474c1a844b6fd6da2db95077d",
         "type": "github"
       },
       "original": {
@@ -100,10 +77,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1744599653,
+        "lastModified": 1776659114,
+        "narHash": "sha256-qapCOQmR++yZSY43dzrp3wCrkOTLpod+ONtJWBk6iKU=",
         "owner": "pyproject-nix",
         "repo": "build-system-pkgs",
-        "rev": "7dba6dbc73120e15b558754c26024f6c93015dd7",
+        "rev": "ffaa2161dd5d63e0e94591f86b54fc239660fb2e",
         "type": "github"
       },
       "original": {
@@ -119,10 +97,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1746540146,
+        "lastModified": 1776715674,
+        "narHash": "sha256-Gs1VnEkCkkRZxJQAC/Dhz0Jbfi22mFXChbtNg9w/Ybg=",
         "owner": "pyproject-nix",
         "repo": "pyproject.nix",
-        "rev": "e09c10c24ebb955125fda449939bfba664c467fd",
+        "rev": "69f57f27e52a87c54e28138a75ec741cd46663c9",
         "type": "github"
       },
       "original": {
@@ -134,11 +113,9 @@
     "root": {
       "inputs": {
         "devenv": "devenv",
-        "git-hooks": "git-hooks",
+        "devenv-module-devcontainer": "devenv-module-devcontainer",
+        "devenv-module-devcontainer-nixpkgs": "devenv-module-devcontainer-nixpkgs",
         "nixpkgs": "nixpkgs",
-        "pre-commit-hooks": [
-          "git-hooks"
-        ],
         "pyproject-build-systems": "pyproject-build-systems",
         "pyproject-nix": "pyproject-nix",
         "unstable": "unstable",
@@ -147,10 +124,11 @@
     },
     "unstable": {
       "locked": {
-        "lastModified": 1747220854,
+        "lastModified": 1776787483,
+        "narHash": "sha256-QTx9kyyLGm3BTJEmCuVJLJGy9jrgP6+v9J3XQN7ONww=",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "b82335bb5a660245d56f4ba7ae40f4c50572e835",
+        "rev": "cd39360547735eb3a266a99789aed101149df0ff",
         "type": "github"
       },
       "original": {
@@ -170,10 +148,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1746649034,
+        "lastModified": 1776718528,
+        "narHash": "sha256-XeGmo/BhkFXd8vVyendr3X4mQmw7CEkeQcpy7AHbVcg=",
         "owner": "pyproject-nix",
         "repo": "uv2nix",
-        "rev": "fe540e91c26f378c62bf6da365a97e848434d0cd",
+        "rev": "60982c30e16db3e0cba6c0ed13f0894b06ab2bf1",
         "type": "github"
       },
       "original": {

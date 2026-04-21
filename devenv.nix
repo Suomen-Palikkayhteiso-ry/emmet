@@ -18,11 +18,4 @@
     export UV_PYTHON_DOWNLOADS=never
     export REPO_ROOT=$(git rev-parse --show-toplevel)
   '';
-
-  git-hooks.hooks.treefmt = {
-    enable = true;
-    settings.formatters = [
-      pkgs.nixfmt-rfc-style
-    ];
-  };
 }

@@ -17,6 +17,7 @@ Use `uv run emmet --help` to verify current command availability.
 
 Current top-level commands:
 - `dump-excel`
+- `list-emails`
 - `sync`
 - `send-verification`
 - `set-email-verified`
@@ -45,6 +46,7 @@ devenv shell
 uv run emmet --help
 uv run emmet sync --help
 uv run emmet -v dump-excel <excel_file>
+uv run emmet list-emails <excel_file>
 uv run emmet sync <excel_file> --dry-run
 ```
 

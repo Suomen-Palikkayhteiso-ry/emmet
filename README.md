@@ -14,6 +14,7 @@ Run commands using `uv run`:
 
 ```bash
 uv run emmet -v dump-excel example.xlsx
+uv run emmet list-emails example.xlsx
 uv run emmet sync example.xlsx --dry-run
 ```
 
@@ -28,6 +29,13 @@ devenv shell -- emmet -v dump-excel example.xlsx
 **`emmet dump-excel <excel_file>`**
 
 Parse and display user data from Excel file.
+
+**`emmet list-emails <excel_file> [--without-current-year-payment | --with-current-year-payment]`**
+
+Print one email address per line for active members from the Excel file. Use
+`--without-current-year-payment` to list active members who have not paid during
+the ongoing year, or `--with-current-year-payment` to list only active members
+who have paid during the ongoing year.
 
 **`emmet sync <excel_file> [--dry-run]`**
 

@@ -5,6 +5,7 @@ from typing import Optional
 
 class User(BaseModel):
     username: str
+    excelRow: Optional[int] = None
     email: Optional[EmailStr] = None
     firstName: Optional[str] = None
     lastName: Optional[str] = None

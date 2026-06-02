@@ -15,6 +15,7 @@ Run commands using `uv run`:
 ```bash
 uv run emmet -v dump-excel example.xlsx
 uv run emmet list-emails example.xlsx
+uv run emmet create-payment-request example.xlsx --email member@example.com --iban FI2112345600000785 --amount 10 --due-date 2026-12-31
 uv run emmet sync example.xlsx --dry-run
 ```
 
@@ -36,6 +37,16 @@ Print one email address per line for active members from the Excel file. Use
 `--without-current-year-payment` to list active members who have not paid during
 the ongoing year, or `--with-current-year-payment` to list only active members
 who have paid during the ongoing year.
+
+**`emmet create-payment-request <excel_file> --email <email> --iban <IBAN> --amount <EUR> --due-date <YYYY-MM-DD> [--creditor-name TEXT] [--barcode-version 4|5|auto]`**
+
+Print human-readable payment details for one member. The command generates a
+Finnish reference number from the current year and the member's Excel row, then
+prints a Finnish virtual barcode payload. Version `4` uses the Finnish national
+reference and requires a FI IBAN. Version `5` uses an RF reference, but still
+requires the IBAN without country code to be exactly 16 digits as required by
+the Finnish virtual barcode structure. The command does not contact Keycloak or
+send email.
 
 **`emmet sync <excel_file> [--dry-run]`**
 

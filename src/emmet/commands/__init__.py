@@ -1,5 +1,6 @@
 """CLI commands for emmet."""
 
+from emmet.commands.create_payment_request import create_payment_request
 from emmet.commands.dump_excel import dump_excel
 from emmet.commands.list_emails import list_emails
 from emmet.commands.send_verification import send_verification
@@ -11,6 +12,7 @@ from emmet.commands.verify_token import verify_token
 
 __all__ = [
     "sync",
+    "create_payment_request",
     "dump_excel",
     "list_emails",
     "send_verification",

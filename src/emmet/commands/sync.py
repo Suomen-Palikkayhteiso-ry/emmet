@@ -1,7 +1,6 @@
 """Sync command - synchronize users from Excel to Keycloak."""
 
 from emmet.constants import INITIAL_GROUPS
-from emmet.constants import PROTECTED_USERS
 from emmet.constants import REQUIRED_USER_ACTIONS
 from emmet.types import User
 from emmet.utils import parse_excel_users

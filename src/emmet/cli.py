@@ -1,5 +1,6 @@
 """CLI for synchronizing user data from an Excel file to Keycloak."""
 
+from emmet.commands import create_payment_request
 from emmet.commands import dump_excel
 from emmet.commands import list_emails
 from emmet.commands import send_verification
@@ -28,6 +29,7 @@ def main(verbose: bool) -> None:
 
 # Register commands
 main.add_command(sync)
+main.add_command(create_payment_request)
 main.add_command(dump_excel)
 main.add_command(list_emails)
 main.add_command(send_verification)

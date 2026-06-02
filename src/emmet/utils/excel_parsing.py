@@ -257,6 +257,7 @@ def parse_excel_users(
             try:
                 user = User(
                     username=username,
+                    excelRow=row_idx,
                     email=email,
                     firstName=first_name,
                     lastName=last_name,

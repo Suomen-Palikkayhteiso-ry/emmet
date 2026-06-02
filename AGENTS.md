@@ -17,6 +17,7 @@ Use `uv run emmet --help` to verify current command availability.
 
 Current top-level commands:
 - `dump-excel`
+- `create-payment-request`
 - `list-emails`
 - `sync`
 - `send-verification`
@@ -46,6 +47,7 @@ devenv shell
 uv run emmet --help
 uv run emmet sync --help
 uv run emmet -v dump-excel <excel_file>
+uv run emmet create-payment-request <excel_file> --email <email> --iban <IBAN> --amount <EUR> --due-date <YYYY-MM-DD>
 uv run emmet list-emails <excel_file>
 uv run emmet sync <excel_file> --dry-run
 ```
@@ -100,6 +102,7 @@ Current behavior that should be understood before modifying sync/parsing logic:
 - Special-case emails are always skipped: `palikkaharrastajatry@outlook.com` and `palikkaharrastajatry+...@outlook.com`.
 - `noVotingRights` and `phone` are not currently synchronized to Keycloak attributes.
 - Parsed users are assigned generated UUID4 usernames.
+- Payment requests use the member's actual Excel row number as part of the generated payment reference.
 - During disable pass in `sync`, safeguards skip:
   - users whose email is in `PROTECTED_USERS`
   - username `admin` (hardcoded protection)

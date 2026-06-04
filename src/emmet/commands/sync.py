@@ -137,17 +137,17 @@ def update_existing_user(
                 attributes.pop("membershipPaymentDate", None)
                 if user.fullName:
                     attributes["fullName"] = [user.fullName]
-                if user.hometown:
+                if existing_hometown != user.hometown:
                     attributes["hometown"] = [user.hometown]
                 if user.registrationDate:
                     attributes["registrationDate"] = [user.registrationDate]
                 if user.paymentDate:
                     attributes["paymentDate"] = [user.paymentDate]
-                if user.discord:
+                if existing_discord != user.discord:
                     attributes["discord"] = [user.discord]
-                if user.bricklink:
+                if existing_bricklink != user.bricklink:
                     attributes["bricklink"] = [user.bricklink]
-                if user.brickowl:
+                if existing_brickowl != user.brickowl:
                     attributes["brickowl"] = [user.brickowl]
 
                 # Use existing firstName/lastName if present, otherwise use new from Excel
